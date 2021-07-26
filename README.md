@@ -61,8 +61,8 @@ both access is required from within and without the kubernetes cluster, multiple
 be configured, even though they will represent the _same_ token issuer backend.
 
 ### Using AuthenticationProviderToken
-In order to simplify deployment and integration with this new broker plugin, there is a configuration option that allows
-users to configure the `AuthenticationProviderToken` as the first attempt when 
+In order to simplify deployment and integration with this new broker plugin, there is a configuration option to use the
+`AuthenticationProviderToken` plugin in conjunction with the OpenID Connect plugin.
 
 The current implementation is naive. If the `openIDAttemptAuthenticationProviderTokenFirst` is configured to true, the
 plugin will first attempt to validate the token using the `AuthenticationProviderToken` plugin. If that fails,
