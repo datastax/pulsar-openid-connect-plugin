@@ -21,7 +21,10 @@ import com.auth0.jwt.interfaces.DecodedJWT;
 import com.auth0.jwt.interfaces.JWTVerifier;
 import org.apache.pulsar.broker.ServiceConfiguration;
 import org.apache.pulsar.broker.authentication.*;
+import org.apache.pulsar.broker.authentication.metrics.AuthenticationMetrics;
 import org.apache.pulsar.common.api.AuthData;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.naming.AuthenticationException;
 import javax.net.ssl.SSLSession;
@@ -56,6 +59,7 @@ import static com.google.common.base.Strings.isNullOrEmpty;
  * this RFC: https://datatracker.ietf.org/doc/html/rfc7518#section-3.1.
  */
 public class AuthenticationProviderOpenID implements AuthenticationProvider {
+    private static final Logger log = LoggerFactory.getLogger(AuthenticationProviderOpenID.class);
 
     // This is backed by an ObjectMapper, which is thread safe. It is an optimization
     // to share this for decoding JWTs for all connections to this broker.
@@ -85,9 +89,9 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
     private static final String KEYCLOAK_JWKS_ENDPOINT = "/protocol/openid-connect/certs";
 
     private long acceptedTimeLeeway; // seconds
-    private boolean isAttemptAuthenticationProviderTokenFirst;
+    private boolean isAttemptAuthenticationProviderToken;
 
-    static final String ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN_FIRST = "openIDAttemptAuthenticationProviderTokenFirst";
+    static final String ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN = "openIDAttemptAuthenticationProviderToken";
     static final String ALLOWED_TOKEN_ISSUERS = "openIDAllowedTokenIssuers";
     static final String ALLOWED_AUDIENCE = "openIDAllowedAudience";
     static final String ACCEPTED_TIME_LEEWAY_SECONDS = "openIDAcceptedTimeLeewaySeconds";
@@ -115,10 +119,10 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
         });
         issuerToJwkProviders = Collections.unmodifiableMap(tmpMap);
 
-        this.isAttemptAuthenticationProviderTokenFirst =
-                getConfigValueAsBoolean(config, ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN_FIRST, true);
+        this.isAttemptAuthenticationProviderToken =
+                getConfigValueAsBoolean(config, ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, true);
 
-        if (isAttemptAuthenticationProviderTokenFirst) {
+        if (isAttemptAuthenticationProviderToken) {
             // Set up the fallback token authentication provider
             this.authenticationProviderToken.initialize(config);
         }
@@ -131,12 +135,13 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
     }
 
     /**
-     * Authenticate
+     * Authenticate the parameterized {@link AuthenticationDataSource}.
      *
-     * Note that if the authentication fails for the {@link AuthenticationProviderToken}, it will increment
-     * failure metrics even though the authentication may succeed on the OpenID Connect authentication step.
+     * If the {@link AuthenticationProviderToken} is enabled and the JWT does not have an Issuer ("iss") claim,
+     * this class will use the {@link AuthenticationProviderToken} to verify/authenticate the token. See the
+     * documentation for {@link AuthenticationProviderToken} regarding configuration.
      *
-     * TODO evaluate creating a better mechanism here, like using a JWT claim to indicate which method to use.
+     * Otherwise, this class will verify/authenticate the token by retrieving the Public key from allow listed issuers.
      *
      * @param authData - the authData passed by the Pulsar Broker containing the token.
      * @return the role, if the JWT is authenticated
@@ -144,16 +149,27 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
      */
     @Override
     public String authenticate(AuthenticationDataSource authData) throws AuthenticationException {
-        if (isAttemptAuthenticationProviderTokenFirst) {
+        String token = AuthenticationProviderToken.getToken(authData);
+        // Token is only decoded at this point. It is not yet verified.
+        DecodedJWT jwt = decodeJWT(token);
+        if (isAttemptAuthenticationProviderToken && jwt.getIssuer() == null) {
+            if (log.isDebugEnabled()) {
+                log.debug("Issuer claim is null. Attempting token authentication using AuthenticationProviderToken.");
+            }
+            // The method is instrumented internally, so no metrics are recorded here.
+            return this.authenticationProviderToken.authenticate(authData);
+        } else {
             try {
-                return this.authenticationProviderToken.authenticate(authData);
-            } catch (AuthenticationException ignored) {
-                // Ignore failure and attempt
+                DecodedJWT validatedJWT = authenticateToken(jwt);
+                String role = getRole(validatedJWT);
+                AuthenticationMetrics.authenticateSuccess(getClass().getSimpleName(), getAuthMethodName());
+                return role;
+            } catch (AuthenticationException exception) {
+                AuthenticationMetrics
+                        .authenticateFailure(getClass().getSimpleName(), getAuthMethodName(), exception.getMessage());
+                throw exception;
             }
         }
-        String token = AuthenticationProviderToken.getToken(authData);
-        DecodedJWT validatedJWT = authenticateToken(token);
-        return getRole(validatedJWT);
     }
 
     /**
@@ -171,9 +187,13 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
      *
      * @param token - string JWT to be decoded
      * @return a decoded JWT
-     * @throws AuthenticationException if the token string is invalid
+     * @throws AuthenticationException if the token string is null or if any part of the token contains
+     *         an invalid jwt or JSON format of each of the jwt parts.
      */
     public DecodedJWT decodeJWT(String token) throws AuthenticationException {
+        if (token == null) {
+            throw new AuthenticationException("Invalid token: cannot be null");
+        }
         try {
             return jwtLibrary.decodeJwt(token);
         } catch (JWTDecodeException e) {
@@ -181,12 +201,18 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
         }
     }
 
-    public DecodedJWT authenticateToken(String token) throws AuthenticationException {
+    /**
+     * Authenticate the parameterized JWT.
+     *
+     * @param jwt - a nonnull JWT to authenticate
+     * @return a fully authenticated JWT
+     * @throws AuthenticationException if the JWT is proven to be invalid in any way
+     */
+    public DecodedJWT authenticateToken(DecodedJWT jwt) throws AuthenticationException {
+        if (jwt == null) {
+            throw new AuthenticationException("JWT cannot be null");
+        }
         try {
-            if (token == null) {
-                throw new AuthenticationException("Invalid token: cannot be null");
-            }
-            DecodedJWT jwt = decodeJWT(token);
             Jwk jwk = verifyIssuerAndGetJwk(jwt);
             // Throws exception if any verification check fails
             return verifyJWT(jwk.getPublicKey(), jwk.getAlgorithm(), jwt);

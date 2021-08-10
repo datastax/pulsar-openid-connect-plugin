@@ -16,6 +16,7 @@ import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.impl.DefaultJwtBuilder;
 import io.jsonwebtoken.security.Keys;
 import org.apache.pulsar.broker.ServiceConfiguration;
+import org.apache.pulsar.broker.authentication.AuthenticationDataCommand;
 import org.apache.pulsar.broker.authentication.AuthenticationState;
 import org.apache.pulsar.common.api.AuthData;
 import org.junit.jupiter.api.*;
@@ -47,6 +48,10 @@ public class OpenIDKeycloakIntegrationTest {
 
     String KEYCLOAK_VERSION = "14.0.0";
 
+    int KEYCLOAK_PORT = 8080;
+    String KEYCLOAK_URL = "http://localhost:" + KEYCLOAK_PORT + "/auth";
+    String KEYCLOAK_MASTER_REALM_URL = KEYCLOAK_URL + "/realms/master";
+
     StopHandle stopHandle = null;
 
     @BeforeAll
@@ -56,7 +61,7 @@ public class OpenIDKeycloakIntegrationTest {
         KeycloakData.AdminUser adminUser = new KeycloakData.AdminUser("admin", "admin");
         Set<KeycloakData.Realm> realmSet = CollectionConverters.asScala(Collections.emptySet()).toSet();
         KeycloakData data = new KeycloakData(adminUser, realmSet);
-        Settings settings = Settings.apply(8081,"0.0.0.0", "/tmp/embedded-keycloak/", true, false, KEYCLOAK_VERSION, true);
+        Settings settings = Settings.apply(KEYCLOAK_PORT,"0.0.0.0", "/tmp/embedded-keycloak/", true, false, KEYCLOAK_VERSION, true);
         EmbeddedKeycloak embeddedKeycloak = new EmbeddedKeycloak(data, settings);
         Future<StopHandle> stopHandleFuture = embeddedKeycloak.startServer(ExecutionContext.global());
         stopHandle = Await.result(stopHandleFuture, Duration.apply(60, TimeUnit.SECONDS));
@@ -73,74 +78,76 @@ public class OpenIDKeycloakIntegrationTest {
     @Test
     public void testVerificationPasses() throws Exception {
         // Create an admin client and get token
-        Keycloak adminClient = Keycloak.getInstance("http://localhost:8081/auth", "master", "admin", "admin", "admin-cli");
+        Keycloak adminClient = Keycloak.getInstance(KEYCLOAK_URL, "master", "admin", "admin", "admin-cli");
         AccessTokenResponse response = adminClient.tokenManager().getAccessToken();
 
         // Set up provider
         AuthenticationProviderOpenID provider = new AuthenticationProviderOpenID();
         Properties props = new Properties();
-        props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, "http://localhost:8081/auth/realms/master");
-        props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN_FIRST, "false");
+        props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, KEYCLOAK_MASTER_REALM_URL);
+        props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, "false");
         ServiceConfiguration config = new ServiceConfiguration();
         config.setProperties(props);
         provider.initialize(config);
 
-        Assertions.assertDoesNotThrow(() -> provider.authenticateToken(response.getToken()));
+        Assertions.assertDoesNotThrow(() -> provider.authenticate(new AuthenticationDataCommand(response.getToken())));
     }
 
     @Test
     public void testVerificationFailsForIssuer() throws Exception {
         // Create an admin client and get token
-        Keycloak adminClient = Keycloak.getInstance("http://localhost:8081/auth", "master", "admin", "admin", "admin-cli");
+        Keycloak adminClient = Keycloak.getInstance(KEYCLOAK_URL, "master", "admin", "admin", "admin-cli");
         AccessTokenResponse response = adminClient.tokenManager().getAccessToken();
 
         AuthenticationProviderOpenID provider = new AuthenticationProviderOpenID();
 
         Properties props = new Properties();
         props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, "http://localhost:8081/");
-        props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN_FIRST, "false");
+        props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, "false");
 
         ServiceConfiguration config = new ServiceConfiguration();
         config.setProperties(props);
 
         provider.initialize(config);
 
-        Assertions.assertThrows(AuthenticationException.class, () -> provider.authenticateToken(response.getToken()));
+        Assertions.assertThrows(AuthenticationException.class,
+                () -> provider.authenticate(new AuthenticationDataCommand(response.getToken())));
     }
 
     @Test
     public void testVerificationFailsForIncorrectAudience() throws Exception {
         // Create an admin client and get token
-        Keycloak adminClient = Keycloak.getInstance("http://localhost:8081/auth", "master", "admin", "admin", "admin-cli");
+        Keycloak adminClient = Keycloak.getInstance(KEYCLOAK_URL, "master", "admin", "admin", "admin-cli");
         AccessTokenResponse response = adminClient.tokenManager().getAccessToken();
 
         AuthenticationProviderOpenID provider = new AuthenticationProviderOpenID();
 
         // Include valid issuer and invalid audience
         Properties props = new Properties();
-        props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, "http://localhost:8081/auth/realms/master");
-        props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN_FIRST, "false");
+        props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, KEYCLOAK_MASTER_REALM_URL);
+        props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, "false");
         props.setProperty(AuthenticationProviderOpenID.ALLOWED_AUDIENCE, "missing_audience");
         ServiceConfiguration config = new ServiceConfiguration();
         config.setProperties(props);
 
         provider.initialize(config);
 
-        Assertions.assertThrows(AuthenticationException.class, () -> provider.authenticateToken(response.getToken()));
+        Assertions.assertThrows(AuthenticationException.class,
+                () -> provider.authenticate(new AuthenticationDataCommand(response.getToken())));
     }
 
     @Test
     void testAuthStateBehavesAsExpected() throws Exception {
         // Create an admin client and get token
-        Keycloak adminClient = Keycloak.getInstance("http://localhost:8081/auth", "master", "admin", "admin", "admin-cli");
+        Keycloak adminClient = Keycloak.getInstance(KEYCLOAK_URL, "master", "admin", "admin", "admin-cli");
         AccessTokenResponse response = adminClient.tokenManager().getAccessToken();
 
         // Set up the provider
         AuthenticationProviderOpenID provider = new AuthenticationProviderOpenID();
         Properties props = new Properties();
         props.setProperty(AuthenticationProviderOpenID.ACCEPTED_TIME_LEEWAY_SECONDS, "10");
-        props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, "http://localhost:8081/auth/realms/master");
-        props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN_FIRST, "false");
+        props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, KEYCLOAK_MASTER_REALM_URL);
+        props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, "false");
         ServiceConfiguration config = new ServiceConfiguration();
         config.setProperties(props);
         provider.initialize(config);
@@ -165,8 +172,8 @@ public class OpenIDKeycloakIntegrationTest {
         AuthenticationProviderOpenID provider = new AuthenticationProviderOpenID();
         Properties props = new Properties();
         props.setProperty(AuthenticationProviderOpenID.ACCEPTED_TIME_LEEWAY_SECONDS, "10");
-        props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, "http://localhost:8081/auth/realms/master");
-        props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN_FIRST, "false");
+        props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, KEYCLOAK_MASTER_REALM_URL);
+        props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, "false");
         ServiceConfiguration config = new ServiceConfiguration();
         config.setProperties(props);
         provider.initialize(config);
@@ -175,10 +182,10 @@ public class OpenIDKeycloakIntegrationTest {
         // and then fail on the algorithm portion.
         KeyPair keyPair = Keys.keyPairFor(SignatureAlgorithm.RS256);
         DefaultJwtBuilder defaultJwtBuilder = new DefaultJwtBuilder();
-        defaultJwtBuilder.setIssuer("http://localhost:8081/auth/realms/master");
+        defaultJwtBuilder.setIssuer(KEYCLOAK_MASTER_REALM_URL);
         defaultJwtBuilder.signWith(keyPair.getPrivate());
 
         Assertions.assertThrows(AuthenticationException.class,
-                () -> provider.authenticateToken(defaultJwtBuilder.compact()));
+                () -> provider.authenticate(new AuthenticationDataCommand(defaultJwtBuilder.compact())));
     }
 }
