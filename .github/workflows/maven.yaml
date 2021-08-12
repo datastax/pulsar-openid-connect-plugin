@@ -17,7 +17,7 @@ jobs:
         java-version: '11'
         distribution: 'adopt'
     - name: Build with Maven
-      run: mvn -B clean install test --file pom.xml
+      run: mvn -B clean install --file pom.xml
 
 
 
