@@ -171,7 +171,7 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
             token = AuthenticationProviderToken.getToken(authData);
         } catch (AuthenticationException e) {
             // To see the stack trace, turn on debug logging.
-            log.warn("Authentication failed for request from remote ip [{}] with reason: {}",
+            log.warn("[Audit Event] Auth failed for request from remote ip [{}] with reason: {}",
                     authData.getPeerAddress(), e.getMessage());
             incrementFailureMetric(AuthenticationExceptionCode.ERROR_DECODING_JWT);
             throw e;
@@ -188,13 +188,13 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
             try {
                 DecodedJWT validatedJWT = authenticateToken(jwt);
                 String role = getRole(validatedJWT);
-                log.info("Authentication succeeded for request from remote ip [{}] for role [{}]",
+                log.info("[Audit Event] Auth succeeded for request from remote ip [{}] for role [{}]",
                         authData.getPeerAddress(), role);
                 AuthenticationMetrics.authenticateSuccess(getClass().getSimpleName(), getAuthMethodName());
                 return role;
             } catch (AuthenticationException e) {
                 // To see the stack trace, turn on debug logging.
-                log.warn("Authentication failed for request from remote ip [{}] with reason: {}",
+                log.warn("[Audit Event] Auth failed for request from remote ip [{}] with reason: {}",
                         authData.getPeerAddress(), e.getMessage());
                 // Failure metrics are incremented within methods above
                 throw e;
