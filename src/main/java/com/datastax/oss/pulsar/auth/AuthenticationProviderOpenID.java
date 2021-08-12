@@ -15,13 +15,15 @@ package com.datastax.oss.pulsar.auth;
 import com.auth0.jwk.*;
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
-import com.auth0.jwt.exceptions.JWTDecodeException;
-import com.auth0.jwt.exceptions.JWTVerificationException;
+import com.auth0.jwt.exceptions.*;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.auth0.jwt.interfaces.JWTVerifier;
 import org.apache.pulsar.broker.ServiceConfiguration;
 import org.apache.pulsar.broker.authentication.*;
+import org.apache.pulsar.broker.authentication.metrics.AuthenticationMetrics;
 import org.apache.pulsar.common.api.AuthData;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.naming.AuthenticationException;
 import javax.net.ssl.SSLSession;
@@ -45,17 +47,20 @@ import static com.google.common.base.Strings.isNullOrEmpty;
  * signature.
  *
  * The Public Keys for a given provider are cached based on certain configured parameters to improve performance.
- * The tradeoff here is that the longer Public Keys are cached, the longer an invalidated token could be used. Once way
+ * The tradeoff here is that the longer Public Keys are cached, the longer an invalidated token could be used. One way
  * to ensure caches are cleared is to restart all brokers.
  *
  * Class is called from multiple threads. The implementation must be thread safe. This class expects to be loaded once
- * and then called concurrently for each new connection. The caches is backed by a GuavaCachedJwkProvider, which is
+ * and then called concurrently for each new connection. The cache is backed by a GuavaCachedJwkProvider, which is
  * thread-safe.
  *
  * Supported algorithms are: RS256, RS384, RS512, ES256, ES384, ES512 where the naming conventions follow
  * this RFC: https://datatracker.ietf.org/doc/html/rfc7518#section-3.1.
  */
 public class AuthenticationProviderOpenID implements AuthenticationProvider {
+    private static final Logger log = LoggerFactory.getLogger(AuthenticationProviderOpenID.class);
+
+    private final String simpleName = getClass().getSimpleName();
 
     // This is backed by an ObjectMapper, which is thread safe. It is an optimization
     // to share this for decoding JWTs for all connections to this broker.
@@ -85,9 +90,9 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
     private static final String KEYCLOAK_JWKS_ENDPOINT = "/protocol/openid-connect/certs";
 
     private long acceptedTimeLeeway; // seconds
-    private boolean isAttemptAuthenticationProviderTokenFirst;
+    private boolean isAttemptAuthenticationProviderToken;
 
-    static final String ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN_FIRST = "openIDAttemptAuthenticationProviderTokenFirst";
+    static final String ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN = "openIDAttemptAuthenticationProviderToken";
     static final String ALLOWED_TOKEN_ISSUERS = "openIDAllowedTokenIssuers";
     static final String ALLOWED_AUDIENCE = "openIDAllowedAudience";
     static final String ACCEPTED_TIME_LEEWAY_SECONDS = "openIDAcceptedTimeLeewaySeconds";
@@ -115,10 +120,10 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
         });
         issuerToJwkProviders = Collections.unmodifiableMap(tmpMap);
 
-        this.isAttemptAuthenticationProviderTokenFirst =
-                getConfigValueAsBoolean(config, ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN_FIRST, true);
+        this.isAttemptAuthenticationProviderToken =
+                getConfigValueAsBoolean(config, ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, true);
 
-        if (isAttemptAuthenticationProviderTokenFirst) {
+        if (isAttemptAuthenticationProviderToken) {
             // Set up the fallback token authentication provider
             this.authenticationProviderToken.initialize(config);
         }
@@ -131,12 +136,13 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
     }
 
     /**
-     * Authenticate
+     * Authenticate the parameterized {@link AuthenticationDataSource}.
      *
-     * Note that if the authentication fails for the {@link AuthenticationProviderToken}, it will increment
-     * failure metrics even though the authentication may succeed on the OpenID Connect authentication step.
+     * If the {@link AuthenticationProviderToken} is enabled and the JWT does not have an Issuer ("iss") claim,
+     * this class will use the {@link AuthenticationProviderToken} to verify/authenticate the token. See the
+     * documentation for {@link AuthenticationProviderToken} regarding configuration.
      *
-     * TODO evaluate creating a better mechanism here, like using a JWT claim to indicate which method to use.
+     * Otherwise, this class will verify/authenticate the token by retrieving the Public key from allow listed issuers.
      *
      * @param authData - the authData passed by the Pulsar Broker containing the token.
      * @return the role, if the JWT is authenticated
@@ -144,16 +150,28 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
      */
     @Override
     public String authenticate(AuthenticationDataSource authData) throws AuthenticationException {
-        if (isAttemptAuthenticationProviderTokenFirst) {
-            try {
-                return this.authenticationProviderToken.authenticate(authData);
-            } catch (AuthenticationException ignored) {
-                // Ignore failure and attempt
-            }
+        String token;
+        try {
+            token = AuthenticationProviderToken.getToken(authData);
+        } catch (AuthenticationException e) {
+            incrementFailureMetric(AuthenticationExceptionCode.ERROR_DECODING_JWT);
+            throw e;
         }
-        String token = AuthenticationProviderToken.getToken(authData);
-        DecodedJWT validatedJWT = authenticateToken(token);
-        return getRole(validatedJWT);
+        // Token is only decoded at this point. It is not yet verified.
+        DecodedJWT jwt = decodeJWT(token);
+        if (isAttemptAuthenticationProviderToken && jwt.getIssuer() == null) {
+            if (log.isDebugEnabled()) {
+                log.debug("Issuer claim is null. Attempting token authentication using AuthenticationProviderToken.");
+            }
+            // The method is instrumented internally, so no metrics are recorded here.
+            return this.authenticationProviderToken.authenticate(authData);
+        } else {
+            // Failure metrics are incremented within methods
+            DecodedJWT validatedJWT = authenticateToken(jwt);
+            String role = getRole(validatedJWT);
+            AuthenticationMetrics.authenticateSuccess(getClass().getSimpleName(), getAuthMethodName());
+            return role;
+        }
     }
 
     /**
@@ -171,43 +189,60 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
      *
      * @param token - string JWT to be decoded
      * @return a decoded JWT
-     * @throws AuthenticationException if the token string is invalid
+     * @throws AuthenticationException if the token string is null or if any part of the token contains
+     *         an invalid jwt or JSON format of each of the jwt parts.
      */
     public DecodedJWT decodeJWT(String token) throws AuthenticationException {
+        if (token == null) {
+            incrementFailureMetric(AuthenticationExceptionCode.ERROR_DECODING_JWT);
+            throw new AuthenticationException("Invalid token: cannot be null");
+        }
         try {
             return jwtLibrary.decodeJwt(token);
         } catch (JWTDecodeException e) {
+            incrementFailureMetric(AuthenticationExceptionCode.ERROR_DECODING_JWT);
             throw new AuthenticationException("Unable to decode JWT: " + e.getMessage());
         }
     }
 
-    public DecodedJWT authenticateToken(String token) throws AuthenticationException {
+    /**
+     * Authenticate the parameterized JWT.
+     *
+     * @param jwt - a nonnull JWT to authenticate
+     * @return a fully authenticated JWT
+     * @throws AuthenticationException if the JWT is proven to be invalid in any way
+     */
+    public DecodedJWT authenticateToken(DecodedJWT jwt) throws AuthenticationException {
+        if (jwt == null) {
+            incrementFailureMetric(AuthenticationExceptionCode.ERROR_DECODING_JWT);
+            throw new AuthenticationException("JWT cannot be null");
+        }
         try {
-            if (token == null) {
-                throw new AuthenticationException("Invalid token: cannot be null");
-            }
-            DecodedJWT jwt = decodeJWT(token);
             Jwk jwk = verifyIssuerAndGetJwk(jwt);
             // Throws exception if any verification check fails
             return verifyJWT(jwk.getPublicKey(), jwk.getAlgorithm(), jwt);
-        } catch (JWTVerificationException | InvalidPublicKeyException e) {
-            throw new AuthenticationException("JWT verification failed: " + e.getMessage());
+        } catch (InvalidPublicKeyException e) {
+            incrementFailureMetric(AuthenticationExceptionCode.INVALID_PUBLIC_KEY);
+            throw new AuthenticationException("Invalid public key: " + e.getMessage());
         }
     }
 
     public Jwk verifyIssuerAndGetJwk(DecodedJWT jwt) throws AuthenticationException {
         if (jwt.getIssuer() == null) {
+            incrementFailureMetric(AuthenticationExceptionCode.UNSUPPORTED_ISSUER);
             throw new AuthenticationException("Issuer cannot be null");
         }
         // The issuerToJwkProviders map contains all valid issuers. This get
         // verifies that the "iss" on the token is in the approved list of issuers.
         JwkProvider jwkProvider = issuerToJwkProviders.get(jwt.getIssuer());
         if (jwkProvider == null) {
-            throw new AuthenticationException("Invalid issuer: " + jwt.getIssuer());
+            incrementFailureMetric(AuthenticationExceptionCode.UNSUPPORTED_ISSUER);
+            throw new AuthenticationException("Unsupported issuer: " + jwt.getIssuer());
         }
         try {
             return jwkProvider.get(jwt.getKeyId());
         } catch (JwkException e) {
+            incrementFailureMetric(AuthenticationExceptionCode.ERROR_RETRIEVING_PUBLIC_KEY);
             throw new AuthenticationException("Unable to retrieve PublicKey: " + e.getMessage());
         }
     }
@@ -248,6 +283,7 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
      */
     public DecodedJWT verifyJWT(PublicKey publicKey, String publicKeyAlg, DecodedJWT jwt) throws AuthenticationException {
         if (publicKeyAlg == null) {
+            incrementFailureMetric(AuthenticationExceptionCode.UNSUPPORTED_ALGORITHM);
             throw new AuthenticationException("PublicKey algorithm cannot be null");
         }
 
@@ -273,9 +309,11 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
                     alg = Algorithm.ECDSA512((ECPublicKey) publicKey, null);
                     break;
                 default:
+                    incrementFailureMetric(AuthenticationExceptionCode.UNSUPPORTED_ALGORITHM);
                     throw new AuthenticationException("Unsupported algorithm: " + publicKeyAlg);
             }
         } catch (ClassCastException e) {
+            incrementFailureMetric(AuthenticationExceptionCode.ALGORITHM_MISMATCH);
             throw new AuthenticationException("Expected PublicKey alg [" + publicKeyAlg + "] does match actual alg.");
         }
 
@@ -288,7 +326,23 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
 
         try {
             return verifier.verify(jwt);
+        } catch (TokenExpiredException e) {
+            incrementFailureMetric(AuthenticationExceptionCode.EXPIRED_JWT);
+            throw new AuthenticationException("JWT expired: " + e.getMessage());
+        } catch (SignatureVerificationException e) {
+            incrementFailureMetric(AuthenticationExceptionCode.ERROR_VERIFYING_JWT_SIGNATURE);
+            throw new AuthenticationException("JWT signature verification exception: " + e.getMessage());
+        } catch (InvalidClaimException e) {
+            incrementFailureMetric(AuthenticationExceptionCode.INVALID_JWT_CLAIM);
+            throw new AuthenticationException("JWT contains invalid claim: " + e.getMessage());
+        } catch (AlgorithmMismatchException e) {
+            incrementFailureMetric(AuthenticationExceptionCode.ALGORITHM_MISMATCH);
+            throw new AuthenticationException("JWT algorithm does not match Public Key algorithm: " + e.getMessage());
+        } catch (JWTDecodeException e) {
+            incrementFailureMetric(AuthenticationExceptionCode.ERROR_DECODING_JWT);
+            throw new AuthenticationException("Error while decoding JWT: " + e.getMessage());
         } catch (JWTVerificationException e) {
+            incrementFailureMetric(AuthenticationExceptionCode.ERROR_VERIFYING_JWT);
             throw new AuthenticationException("JWT verification failed: " + e.getMessage());
         }
     }
@@ -310,5 +364,9 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
         } catch (MalformedURLException | URISyntaxException e) {
             throw new IllegalArgumentException("Invalid JWKS uri", e);
         }
+    }
+
+    private void incrementFailureMetric(AuthenticationExceptionCode code) {
+        AuthenticationMetrics.authenticateFailure(this.simpleName, getAuthMethodName(), code.toString());
     }
 }

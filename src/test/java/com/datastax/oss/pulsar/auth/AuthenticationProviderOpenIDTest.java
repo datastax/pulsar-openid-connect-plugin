@@ -18,6 +18,7 @@ import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.impl.DefaultJwtBuilder;
 import io.jsonwebtoken.security.Keys;
 import org.apache.pulsar.broker.ServiceConfiguration;
+import org.apache.pulsar.broker.authentication.AuthenticationDataCommand;
 import org.junit.jupiter.api.*;
 
 import javax.naming.AuthenticationException;
@@ -48,7 +49,8 @@ public class AuthenticationProviderOpenIDTest {
     @Test
     public void testNullToken() {
         AuthenticationProviderOpenID provider = new AuthenticationProviderOpenID();
-        Assertions.assertThrows(AuthenticationException.class, () -> provider.authenticateToken(null));
+        Assertions.assertThrows(AuthenticationException.class,
+                () -> provider.authenticate(new AuthenticationDataCommand(null)));
     }
 
     @Test
@@ -138,7 +140,7 @@ public class AuthenticationProviderOpenIDTest {
         Properties props = new Properties();
         props.setProperty(AuthenticationProviderOpenID.ACCEPTED_TIME_LEEWAY_SECONDS, "10");
         props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, "http://localhost:8080/");
-        props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN_FIRST, "false");
+        props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, "false");
         ServiceConfiguration config = new ServiceConfiguration();
         config.setProperties(props);
         provider.initialize(config);

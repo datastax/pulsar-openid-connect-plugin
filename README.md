@@ -24,7 +24,7 @@ The following configuration options are available for this plugin:
 | openIDAcceptedTimeLeewaySeconds | `0` | Number (no decimals) | The number of seconds that a token will be accepted past its expiration time. |
 | openIDJwkCacheSize | `10` | Number (no decimals) | The number of JWK values to keep in the cache. |
 | openIDJwkExpiresMinutes | `5` | Number (no decimals) | The length of time to store a JWK before calling the issuer again. Note that this time is also the maximum time that a revoked token can be used. A longer window may improve performance, but it also increases the length of time than a deactivated token could be used. |
-| openIDAttemptAuthenticationProviderTokenFirst | `true` | Boolean | Whether to also use the `AuthenticationProviderToken` class when attempting verification of the JWT. See [Using AuthenticationProviderToken](#Using-AuthenticationProviderToken). | 
+| openIDAttemptAuthenticationProviderToken | `true` | Boolean | Whether to use the `AuthenticationProviderToken` class when attempting verification of the JWT. See [Using AuthenticationProviderToken](#Using-AuthenticationProviderToken). |
 
 Note that the only required configuration is the `openIDAllowedTokenIssuers`.
 
@@ -64,14 +64,11 @@ be configured, even though they will represent the _same_ token issuer backend.
 In order to simplify deployment and integration with this new broker plugin, there is a configuration option to use the
 `AuthenticationProviderToken` plugin in conjunction with the OpenID Connect plugin.
 
-The current implementation is naive. If the `openIDAttemptAuthenticationProviderTokenFirst` is configured to true, the
-plugin will first attempt to validate the token using the `AuthenticationProviderToken` plugin. If that fails,
+If the `openIDAttemptAuthenticationProviderToken` is set to true, and the JWT does not have an `iss` claim, the plugin
+will attempt to validate the token using the `AuthenticationProviderToken` plugin. Otherwise,
 it will then attempt to retrieve a Public Key via the OpenID Connect protocol and will use that key to
 validate the token. This feature is helpful because there are several pulsar components that need access to a super user
-token in order to work.
-
-In the future, it might be better to include a special claim on the JWT to indicate which provider should be used
-to validate the token.
+token in order to work, and deploying those components using OpenID Connect (or OAuth2.0) clients is not yet available.
 
 ### Deployment
 The [Luna Streaming Helm Chart](https://github.com/datastax/pulsar-helm-chart) includes this plugin by default.
