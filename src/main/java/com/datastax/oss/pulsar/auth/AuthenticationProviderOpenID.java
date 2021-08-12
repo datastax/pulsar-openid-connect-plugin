@@ -154,6 +154,9 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
         try {
             token = AuthenticationProviderToken.getToken(authData);
         } catch (AuthenticationException e) {
+            // To see the stack trace, turn on debug logging.
+            log.warn(String.format("Authentication failed for request from remote ip [%s] with reason: %s",
+                    authData.getPeerAddress(), e.getMessage()));
             incrementFailureMetric(AuthenticationExceptionCode.ERROR_DECODING_JWT);
             throw e;
         }
@@ -166,11 +169,20 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
             // The method is instrumented internally, so no metrics are recorded here.
             return this.authenticationProviderToken.authenticate(authData);
         } else {
-            // Failure metrics are incremented within methods
-            DecodedJWT validatedJWT = authenticateToken(jwt);
-            String role = getRole(validatedJWT);
-            AuthenticationMetrics.authenticateSuccess(getClass().getSimpleName(), getAuthMethodName());
-            return role;
+            try {
+                DecodedJWT validatedJWT = authenticateToken(jwt);
+                String role = getRole(validatedJWT);
+                log.info(String.format("Authentication succeeded for request from remote ip [%s] for role [%s]",
+                        role, authData.getPeerAddress()));
+                AuthenticationMetrics.authenticateSuccess(getClass().getSimpleName(), getAuthMethodName());
+                return role;
+            } catch (AuthenticationException e) {
+                // To see the stack trace, turn on debug logging.
+                log.warn(String.format("Authentication failed for request from remote ip [%s] with reason: %s",
+                        authData.getPeerAddress(), e.getMessage()));
+                // Failure metrics are incremented within methods above
+                throw e;
+            }
         }
     }
 
