@@ -65,22 +65,22 @@ public class ConfigUtils {
     }
 
     /**
-     * Utility method to get a long from the {@link ServiceConfiguration}. If the value is not a valid long or the key
-     * is not present in the conf, the default value will be used.
+     * Utility method to get an integer from the {@link ServiceConfiguration}. If the value is not a valid long or the
+     * key is not present in the conf, the default value will be used.
      *
      * @param conf - the map of configuration properties
      * @param configProp - the property (key) to get
      * @param defaultValue - the value to use if the property is missing from the conf
      * @return a long
      */
-    public static long getConfigValueAsLong(ServiceConfiguration conf, String configProp, long defaultValue) {
+    public static int getConfigValueAsInt(ServiceConfiguration conf, String configProp, int defaultValue) {
         Object value = conf.getProperty(configProp);
-        if (value instanceof Long) {
+        if (value instanceof Integer) {
             log.info("Configuration for [{}] is [{}]", configProp, value);
-            return (Long) value;
+            return (Integer) value;
         } else if (value instanceof String) {
             try {
-                return Long.parseLong((String) value);
+                return Integer.parseInt((String) value);
             } catch (NumberFormatException numberFormatException) {
                 log.error("Expected configuration for [{}] to be a long, but got [{}]. Using default value: [{}]", configProp, value, defaultValue, numberFormatException);
                 return defaultValue;

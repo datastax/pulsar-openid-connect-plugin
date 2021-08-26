@@ -18,6 +18,7 @@ import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.exceptions.*;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.auth0.jwt.interfaces.JWTVerifier;
+import com.datastax.oss.pulsar.auth.model.OpenIDProviderMetadata;
 import org.apache.pulsar.broker.ServiceConfiguration;
 import org.apache.pulsar.broker.authentication.*;
 import org.apache.pulsar.broker.authentication.metrics.AuthenticationMetrics;
@@ -33,11 +34,10 @@ import java.security.PublicKey;
 import java.security.interfaces.ECPublicKey;
 import java.security.interfaces.RSAPublicKey;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 import static com.datastax.oss.pulsar.auth.ConfigUtils.*;
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Strings.isNullOrEmpty;
 
 
 /**
@@ -60,18 +60,24 @@ import static com.google.common.base.Strings.isNullOrEmpty;
 public class AuthenticationProviderOpenID implements AuthenticationProvider {
     private static final Logger log = LoggerFactory.getLogger(AuthenticationProviderOpenID.class);
 
-    private final String simpleName = getClass().getSimpleName();
+    private static final String simpleName = AuthenticationProviderOpenID.class.getSimpleName();
 
     // This is backed by an ObjectMapper, which is thread safe. It is an optimization
     // to share this for decoding JWTs for all connections to this broker.
     private final JWT jwtLibrary = new JWT();
 
-    // A map from issuer to JwkProvider.
-    // A broker loads a single provider once, so this map is shared across all connections.
-    // That means the caching in each JwkProvider is broker wide.
-    private Map<String, JwkProvider> issuerToJwkProviders;
+    private Set<String> issuers;
 
-    private AuthenticationProviderToken authenticationProviderToken = new AuthenticationProviderToken();
+    // This caches the map from Issuer URL to the jwks_uri served at the /.well-known/openid-configuration endpoint
+    private OpenIDProviderMetadataCache openIDProviderMetadataCache;
+
+    // A map from the jwks_uri for an issuer to GuavaCachedJwkProvider.
+    // A broker loads a single provider once, so this map is shared across all connections.
+    // As a result, the caching in each JwkProvider is broker wide.
+    // This map is bounded by the number of allow listed issuers.
+    private final Map<URL, GuavaCachedJwkProvider> issuerToJwkProviders = new ConcurrentHashMap<>();
+
+    private AuthenticationProviderToken authenticationProviderToken;
 
     // A list of supported algorithms. This is the "alg" field on the JWT.
     // Source for strings: https://datatracker.ietf.org/doc/html/rfc7518#section-3.1.
@@ -82,15 +88,13 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
     private static final String ALG_ES384 = "ES384";
     private static final String ALG_ES512 = "ES512";
 
-    // For now, Keycloak is supported (and any other identity providers that follow the same endpoint pattern)
-    // Eventually, it'd be good to discover the `jwks_uri` via the ".well-known/openid-configuration"
-    // endpoint (this is part of the OpenID Connect spec
-    // https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata), which provides a uri to discover
-    // the JWKs and can be used for multiple identity providers.
-    private static final String KEYCLOAK_JWKS_ENDPOINT = "/protocol/openid-connect/certs";
-
     private long acceptedTimeLeeway; // seconds
     private boolean isAttemptAuthenticationProviderToken;
+    private int jwkCacheSize;
+    private int jwkExpiresMin;
+    private int jwkConnectionTimeout;
+    private int jwkReadTimeout;
+    private boolean requireHttps;
 
     static final String ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN = "openIDAttemptAuthenticationProviderToken";
     static final String ALLOWED_TOKEN_ISSUERS = "openIDAllowedTokenIssuers";
@@ -98,33 +102,41 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
     static final String ACCEPTED_TIME_LEEWAY_SECONDS = "openIDAcceptedTimeLeewaySeconds";
     static final String JWK_CACHE_SIZE = "openIDJwkCacheSize";
     static final String JWK_EXPIRES_MINUTES = "openIDJwkExpiresMinutes";
+    static final String JWK_CONNECTION_TIMEOUT = "openIDJwkConnectionTimeout";
+    static final String JWK_READ_TIMEOUT = "openIDJwkReadTimeout";
+    static final String METADATA_CACHE_SIZE = "openIDMetadataCacheSize";
+    static final String METADATA_EXPIRES_HOURS = "openIDMetadataExpiresHours";
+    static final String METADATA_CONNECTION_TIMEOUT = "openIDMetadataConnectionTimeout";
+    static final String METADATA_READ_TIMEOUT = "openIDMetadataReadTimeout";
+    static final String REQUIRE_HTTPS = "openIDRequireHttps";
 
     private String audience;
 
     @Override
     public void initialize(ServiceConfiguration config) throws IOException {
         this.audience = getConfigValueAsString(config, ALLOWED_AUDIENCE);
-        this.acceptedTimeLeeway = getConfigValueAsLong(config, ACCEPTED_TIME_LEEWAY_SECONDS, 0);
-        long cacheSize = getConfigValueAsLong(config, JWK_CACHE_SIZE, 10);
-        long jwkExpiresInMin = getConfigValueAsLong(config, JWK_EXPIRES_MINUTES, 5);
-        Map<String, JwkProvider> tmpMap = new HashMap<>();
-        Set<String> issuers = getConfigValueAsSet(config, ALLOWED_TOKEN_ISSUERS);
-        if (issuers.isEmpty()) {
-            throw new IllegalArgumentException("Missing configured value for: " + ALLOWED_TOKEN_ISSUERS);
-        }
-        issuers.forEach(issuer -> {
-            URL url = urlForDomain(issuer);
-            JwkProvider baseProvider = new UrlJwkProvider(url);
-            JwkProvider cache = new GuavaCachedJwkProvider(baseProvider, cacheSize, jwkExpiresInMin, TimeUnit.MINUTES);
-            tmpMap.put(issuer, cache);
-        });
-        issuerToJwkProviders = Collections.unmodifiableMap(tmpMap);
+        this.acceptedTimeLeeway = getConfigValueAsInt(config, ACCEPTED_TIME_LEEWAY_SECONDS, 0);
+        this.jwkCacheSize = getConfigValueAsInt(config, JWK_CACHE_SIZE, 10);
+        this.jwkExpiresMin = getConfigValueAsInt(config, JWK_EXPIRES_MINUTES, 5);
+        this.jwkConnectionTimeout = getConfigValueAsInt(config, JWK_CONNECTION_TIMEOUT, 10_000);
+        this.jwkReadTimeout = getConfigValueAsInt(config, JWK_READ_TIMEOUT, 10_000);
+
+        this.requireHttps = getConfigValueAsBoolean(config, REQUIRE_HTTPS, true);
+        this.issuers = getConfigValueAsSet(config, ALLOWED_TOKEN_ISSUERS);
+        validateIssuers(this.issuers);
+
+        int metadataCacheSize = getConfigValueAsInt(config, METADATA_CACHE_SIZE, 10);
+        int metadataExpiresHours = getConfigValueAsInt(config, METADATA_EXPIRES_HOURS, 24);
+        int metadataConnectionTimeout = getConfigValueAsInt(config, METADATA_CONNECTION_TIMEOUT, 10_000);
+        int metadataReadTimeout = getConfigValueAsInt(config, METADATA_READ_TIMEOUT, 10_000);
+        this.openIDProviderMetadataCache = new OpenIDProviderMetadataCache(metadataCacheSize, metadataExpiresHours,
+                metadataConnectionTimeout, metadataReadTimeout);
 
         this.isAttemptAuthenticationProviderToken =
                 getConfigValueAsBoolean(config, ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, true);
-
         if (isAttemptAuthenticationProviderToken) {
             // Set up the fallback token authentication provider
+            this.authenticationProviderToken = new AuthenticationProviderToken();
             this.authenticationProviderToken.initialize(config);
         }
     }
@@ -240,17 +252,14 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
     }
 
     public Jwk verifyIssuerAndGetJwk(DecodedJWT jwt) throws AuthenticationException {
-        if (jwt.getIssuer() == null) {
+        // Verify that the issuer claim is nonnull and allowed.
+        if (jwt.getIssuer() == null || !this.issuers.contains(jwt.getIssuer())) {
             incrementFailureMetric(AuthenticationExceptionCode.UNSUPPORTED_ISSUER);
-            throw new AuthenticationException("Issuer cannot be null");
+            throw new AuthenticationException(String.format("Issuer not allowed: [%s]", jwt.getIssuer()));
         }
-        // The issuerToJwkProviders map contains all valid issuers. This get
-        // verifies that the "iss" on the token is in the approved list of issuers.
-        JwkProvider jwkProvider = issuerToJwkProviders.get(jwt.getIssuer());
-        if (jwkProvider == null) {
-            incrementFailureMetric(AuthenticationExceptionCode.UNSUPPORTED_ISSUER);
-            throw new AuthenticationException("Unsupported issuer: " + jwt.getIssuer());
-        }
+        // Retrieve the metadata: https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata
+        OpenIDProviderMetadata metadata = openIDProviderMetadataCache.getOpenIDProviderMetadataForIssuer(jwt.getIssuer());
+        JwkProvider jwkProvider = getJwkProviderForIssuer(metadata.getJwksUri());
         try {
             return jwkProvider.get(jwt.getKeyId());
         } catch (JwkException e) {
@@ -359,26 +368,37 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
         }
     }
 
-    static URL urlForDomain(String domain) {
-        checkArgument(!isNullOrEmpty(domain), "A domain is required");
-
-        // Per this RFC, https://datatracker.ietf.org/doc/html/rfc7515#section-4.1.2,
-        // this transport should be TLS, but if the broker's configuration has an
-        // http prefix, we allow the configuration to work. This may change in the future
-        // to prevent accidental retrieval of PublicKeys in an insecure way.
-        if (!domain.startsWith("http")) {
-            domain = "https://" + domain;
-        }
-
-        try {
-            final URI uri = new URI(domain + KEYCLOAK_JWKS_ENDPOINT).normalize();
-            return uri.toURL();
-        } catch (MalformedURLException | URISyntaxException e) {
-            throw new IllegalArgumentException("Invalid JWKS uri", e);
-        }
+    private JwkProvider getJwkProviderForIssuer(URL issuer) {
+        return issuerToJwkProviders.computeIfAbsent(issuer, (iss) -> {
+            JwkProvider baseProvider = new UrlJwkProvider(iss, this.jwkConnectionTimeout, this.jwkReadTimeout);
+            return new GuavaCachedJwkProvider(baseProvider, this.jwkCacheSize, this.jwkExpiresMin, TimeUnit.MINUTES);
+        });
     }
 
-    private void incrementFailureMetric(AuthenticationExceptionCode code) {
-        AuthenticationMetrics.authenticateFailure(this.simpleName, getAuthMethodName(), code.toString());
+    static void incrementFailureMetric(AuthenticationExceptionCode code) {
+        AuthenticationMetrics.authenticateFailure(simpleName, "token", code.toString());
+    }
+
+    /**
+     * Validate the configured allow list of allowedIssuers. The allowedIssuers set must be nonempty in order for
+     * the plugin to authenticate any token. Thus, it fails initialization if the configuration is
+     * missing. Each issuer URL should use the HTTPS scheme. The plugin fails initialization if any
+     * issuer url is insecure, unless {@link AuthenticationProviderOpenID#REQUIRE_HTTPS} is
+     * configured to false.
+     * @param allowedIssuers - issuers to validate
+     * @throws IllegalArgumentException if the allowedIssuers is empty, or contains insecure issuers when required
+     */
+    void validateIssuers(Set<String> allowedIssuers) {
+        if (allowedIssuers.isEmpty()) {
+            throw new IllegalArgumentException("Missing configured value for: " + ALLOWED_TOKEN_ISSUERS);
+        }
+        for (String issuer : allowedIssuers) {
+            if (!issuer.toLowerCase().startsWith("https://")) {
+                log.warn("Allowed issuer is not using https scheme: " + issuer);
+                if (requireHttps) {
+                    throw new IllegalArgumentException("Issuer URL does not use https, but must: " + issuer);
+                }
+            }
+        }
     }
 }

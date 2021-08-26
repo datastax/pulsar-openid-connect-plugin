@@ -86,6 +86,7 @@ public class OpenIDKeycloakIntegrationTest {
         Properties props = new Properties();
         props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, KEYCLOAK_MASTER_REALM_URL);
         props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, "false");
+        props.setProperty(AuthenticationProviderOpenID.REQUIRE_HTTPS, "false");
         ServiceConfiguration config = new ServiceConfiguration();
         config.setProperties(props);
         provider.initialize(config);
@@ -104,6 +105,7 @@ public class OpenIDKeycloakIntegrationTest {
         Properties props = new Properties();
         props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, "http://localhost:8081/");
         props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, "false");
+        props.setProperty(AuthenticationProviderOpenID.REQUIRE_HTTPS, "false");
 
         ServiceConfiguration config = new ServiceConfiguration();
         config.setProperties(props);
@@ -127,6 +129,7 @@ public class OpenIDKeycloakIntegrationTest {
         props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, KEYCLOAK_MASTER_REALM_URL);
         props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, "false");
         props.setProperty(AuthenticationProviderOpenID.ALLOWED_AUDIENCE, "missing_audience");
+        props.setProperty(AuthenticationProviderOpenID.REQUIRE_HTTPS, "false");
         ServiceConfiguration config = new ServiceConfiguration();
         config.setProperties(props);
 
@@ -148,6 +151,7 @@ public class OpenIDKeycloakIntegrationTest {
         props.setProperty(AuthenticationProviderOpenID.ACCEPTED_TIME_LEEWAY_SECONDS, "10");
         props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, KEYCLOAK_MASTER_REALM_URL);
         props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, "false");
+        props.setProperty(AuthenticationProviderOpenID.REQUIRE_HTTPS, "false");
         ServiceConfiguration config = new ServiceConfiguration();
         config.setProperties(props);
         provider.initialize(config);
@@ -174,6 +178,7 @@ public class OpenIDKeycloakIntegrationTest {
         props.setProperty(AuthenticationProviderOpenID.ACCEPTED_TIME_LEEWAY_SECONDS, "10");
         props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, KEYCLOAK_MASTER_REALM_URL);
         props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, "false");
+        props.setProperty(AuthenticationProviderOpenID.REQUIRE_HTTPS, "false");
         ServiceConfiguration config = new ServiceConfiguration();
         config.setProperties(props);
         provider.initialize(config);

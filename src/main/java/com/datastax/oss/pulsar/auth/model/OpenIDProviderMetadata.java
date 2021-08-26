@@ -10,23 +10,30 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.datastax.oss.pulsar.auth;
+package com.datastax.oss.pulsar.auth.model;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import java.net.URL;
 
 /**
- * Enum used to classify the types of exceptions encountered
- * when attempting JWT verification.
+ *
  */
-public enum AuthenticationExceptionCode {
-    UNSUPPORTED_ISSUER,
-    UNSUPPORTED_ALGORITHM,
-    ISSUER_MISMATCH,
-    ALGORITHM_MISMATCH,
-    INVALID_PUBLIC_KEY,
-    ERROR_RETRIEVING_PROVIDER_METADATA,
-    ERROR_RETRIEVING_PUBLIC_KEY,
-    ERROR_DECODING_JWT,
-    ERROR_VERIFYING_JWT,
-    ERROR_VERIFYING_JWT_SIGNATURE,
-    INVALID_JWT_CLAIM,
-    EXPIRED_JWT,
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class OpenIDProviderMetadata {
+
+    @JsonProperty("issuer")
+    private String issuer;
+
+    @JsonProperty("jwks_uri")
+    private URL jwksUri;
+
+    public String getIssuer() {
+        return issuer;
+    }
+
+    public URL getJwksUri() {
+        return jwksUri;
+    }
 }
