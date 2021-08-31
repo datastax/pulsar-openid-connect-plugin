@@ -15,17 +15,16 @@ package com.datastax.oss.pulsar.auth;
 import com.datastax.oss.pulsar.auth.model.OpenIDProviderMetadata;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
-import com.google.common.util.concurrent.UncheckedExecutionException;
+import com.github.benmanes.caffeine.cache.CacheLoader;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.LoadingCache;
 
 import javax.annotation.Nonnull;
 import javax.naming.AuthenticationException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.*;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -38,30 +37,25 @@ class OpenIDProviderMetadataCache {
     private final int connectionTimeout;
     private final int readTimeout;
 
-    private final CacheLoader<String, OpenIDProviderMetadata> loader = new CacheLoader<>() {
-        @Override
-        public OpenIDProviderMetadata load(@Nonnull String issuer) throws Exception {
-            URLConnection urlConnection = createUrlConnection(issuer);
-            try (InputStream inputStream = urlConnection.getInputStream()) {
-                OpenIDProviderMetadata openIDProviderMetadata = reader.readValue(inputStream);
-                verifyIssuer(issuer, openIDProviderMetadata);
-                return openIDProviderMetadata;
-            } catch (IOException e) {
-                AuthenticationProviderOpenID.incrementFailureMetric(
-                        AuthenticationExceptionCode.ERROR_RETRIEVING_PROVIDER_METADATA);
-                throw new AuthenticationException("Error retrieving OpenID Provider Metadata: " + e.getMessage());
-            }
+    private final CacheLoader<String, OpenIDProviderMetadata> loader = issuer -> {
+        URLConnection urlConnection = createUrlConnection(issuer);
+        try (InputStream inputStream = urlConnection.getInputStream()) {
+            OpenIDProviderMetadata openIDProviderMetadata = reader.readValue(inputStream);
+            verifyIssuer(issuer, openIDProviderMetadata);
+            return openIDProviderMetadata;
+        } catch (IOException e) {
+            throw new AuthenticationException("Error retrieving OpenID Provider Metadata: " + e.getMessage());
         }
     };
 
     private final LoadingCache<String, OpenIDProviderMetadata> cache;
 
-    OpenIDProviderMetadataCache(int maxSize, int expireAfterHours, int connectionTimeout, int readTimeout) {
-        this.connectionTimeout = connectionTimeout;
-        this.readTimeout = readTimeout;
-        this.cache = CacheBuilder.newBuilder()
+    OpenIDProviderMetadataCache(int maxSize, int expireAfterSeconds, int connectionTimeoutMillis, int readTimeoutMillis) {
+        this.connectionTimeout = connectionTimeoutMillis;
+        this.readTimeout = readTimeoutMillis;
+        this.cache = Caffeine.newBuilder()
                 .maximumSize(maxSize)
-                .expireAfterWrite(expireAfterHours, TimeUnit.HOURS)
+                .expireAfterWrite(expireAfterSeconds, TimeUnit.SECONDS)
                 .build(loader);
     }
 
@@ -82,12 +76,14 @@ class OpenIDProviderMetadataCache {
         }
         try {
             return cache.get(issuer);
-        } catch (ExecutionException | UncheckedExecutionException e) {
-            // Metrics are recorded in the CacheLoader
+        } catch (CompletionException e) {
+            AuthenticationProviderOpenID.incrementFailureMetric(
+                    AuthenticationExceptionCode.ERROR_RETRIEVING_PROVIDER_METADATA);
             if (e.getCause() instanceof AuthenticationException) {
                 throw (AuthenticationException) e.getCause();
+            } else {
+                throw new AuthenticationException("Error retrieving OpenID Provider Metadata: " + e.getMessage());
             }
-            throw new AuthenticationException("Error retrieving OpenID Provider Metadata: " + e.getMessage());
         }
     }
 

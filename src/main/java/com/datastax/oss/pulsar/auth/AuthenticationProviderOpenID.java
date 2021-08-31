@@ -60,7 +60,7 @@ import static com.datastax.oss.pulsar.auth.ConfigUtils.*;
 public class AuthenticationProviderOpenID implements AuthenticationProvider {
     private static final Logger log = LoggerFactory.getLogger(AuthenticationProviderOpenID.class);
 
-    private static final String simpleName = AuthenticationProviderOpenID.class.getSimpleName();
+    private static final String SIMPLE_NAME = AuthenticationProviderOpenID.class.getSimpleName();
 
     // This is backed by an ObjectMapper, which is thread safe. It is an optimization
     // to share this for decoding JWTs for all connections to this broker.
@@ -91,7 +91,7 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
     private long acceptedTimeLeeway; // seconds
     private boolean isAttemptAuthenticationProviderToken;
     private int jwkCacheSize;
-    private int jwkExpiresMin;
+    private int jwkExpiresSeconds;
     private int jwkConnectionTimeout;
     private int jwkReadTimeout;
     private boolean requireHttps;
@@ -101,13 +101,13 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
     static final String ALLOWED_AUDIENCE = "openIDAllowedAudience";
     static final String ACCEPTED_TIME_LEEWAY_SECONDS = "openIDAcceptedTimeLeewaySeconds";
     static final String JWK_CACHE_SIZE = "openIDJwkCacheSize";
-    static final String JWK_EXPIRES_MINUTES = "openIDJwkExpiresMinutes";
-    static final String JWK_CONNECTION_TIMEOUT = "openIDJwkConnectionTimeout";
-    static final String JWK_READ_TIMEOUT = "openIDJwkReadTimeout";
+    static final String JWK_EXPIRES_SECONDS = "openIDJwkExpiresSeconds";
+    static final String JWK_CONNECTION_TIMEOUT_MILLIS = "openIDJwkConnectionTimeoutMillis";
+    static final String JWK_READ_TIMEOUT_MILLIS = "openIDJwkReadTimeoutMillis";
     static final String METADATA_CACHE_SIZE = "openIDMetadataCacheSize";
-    static final String METADATA_EXPIRES_HOURS = "openIDMetadataExpiresHours";
-    static final String METADATA_CONNECTION_TIMEOUT = "openIDMetadataConnectionTimeout";
-    static final String METADATA_READ_TIMEOUT = "openIDMetadataReadTimeout";
+    static final String METADATA_EXPIRES_SECONDS = "openIDMetadataExpiresSeconds";
+    static final String METADATA_CONNECTION_TIMEOUT_MILLIS = "openIDMetadataConnectionTimeoutMillis";
+    static final String METADATA_READ_TIMEOUT_MILLIS = "openIDMetadataReadTimeoutMillis";
     static final String REQUIRE_HTTPS = "openIDRequireHttps";
 
     private String audience;
@@ -117,18 +117,18 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
         this.audience = getConfigValueAsString(config, ALLOWED_AUDIENCE);
         this.acceptedTimeLeeway = getConfigValueAsInt(config, ACCEPTED_TIME_LEEWAY_SECONDS, 0);
         this.jwkCacheSize = getConfigValueAsInt(config, JWK_CACHE_SIZE, 10);
-        this.jwkExpiresMin = getConfigValueAsInt(config, JWK_EXPIRES_MINUTES, 5);
-        this.jwkConnectionTimeout = getConfigValueAsInt(config, JWK_CONNECTION_TIMEOUT, 10_000);
-        this.jwkReadTimeout = getConfigValueAsInt(config, JWK_READ_TIMEOUT, 10_000);
+        this.jwkExpiresSeconds = getConfigValueAsInt(config, JWK_EXPIRES_SECONDS, 5);
+        this.jwkConnectionTimeout = getConfigValueAsInt(config, JWK_CONNECTION_TIMEOUT_MILLIS, 10_000);
+        this.jwkReadTimeout = getConfigValueAsInt(config, JWK_READ_TIMEOUT_MILLIS, 10_000);
 
         this.requireHttps = getConfigValueAsBoolean(config, REQUIRE_HTTPS, true);
         this.issuers = getConfigValueAsSet(config, ALLOWED_TOKEN_ISSUERS);
         validateIssuers(this.issuers);
 
         int metadataCacheSize = getConfigValueAsInt(config, METADATA_CACHE_SIZE, 10);
-        int metadataExpiresHours = getConfigValueAsInt(config, METADATA_EXPIRES_HOURS, 24);
-        int metadataConnectionTimeout = getConfigValueAsInt(config, METADATA_CONNECTION_TIMEOUT, 10_000);
-        int metadataReadTimeout = getConfigValueAsInt(config, METADATA_READ_TIMEOUT, 10_000);
+        int metadataExpiresHours = getConfigValueAsInt(config, METADATA_EXPIRES_SECONDS, 24);
+        int metadataConnectionTimeout = getConfigValueAsInt(config, METADATA_CONNECTION_TIMEOUT_MILLIS, 10_000);
+        int metadataReadTimeout = getConfigValueAsInt(config, METADATA_READ_TIMEOUT_MILLIS, 10_000);
         this.openIDProviderMetadataCache = new OpenIDProviderMetadataCache(metadataCacheSize, metadataExpiresHours,
                 metadataConnectionTimeout, metadataReadTimeout);
 
@@ -255,7 +255,7 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
         // Verify that the issuer claim is nonnull and allowed.
         if (jwt.getIssuer() == null || !this.issuers.contains(jwt.getIssuer())) {
             incrementFailureMetric(AuthenticationExceptionCode.UNSUPPORTED_ISSUER);
-            throw new AuthenticationException(String.format("Issuer not allowed: [%s]", jwt.getIssuer()));
+            throw new AuthenticationException("Issuer not allowed: " + jwt.getIssuer());
         }
         // Retrieve the metadata: https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata
         OpenIDProviderMetadata metadata = openIDProviderMetadataCache.getOpenIDProviderMetadataForIssuer(jwt.getIssuer());
@@ -371,12 +371,12 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
     private JwkProvider getJwkProviderForIssuer(URL issuer) {
         return issuerToJwkProviders.computeIfAbsent(issuer, (iss) -> {
             JwkProvider baseProvider = new UrlJwkProvider(iss, this.jwkConnectionTimeout, this.jwkReadTimeout);
-            return new GuavaCachedJwkProvider(baseProvider, this.jwkCacheSize, this.jwkExpiresMin, TimeUnit.MINUTES);
+            return new GuavaCachedJwkProvider(baseProvider, this.jwkCacheSize, this.jwkExpiresSeconds, TimeUnit.SECONDS);
         });
     }
 
     static void incrementFailureMetric(AuthenticationExceptionCode code) {
-        AuthenticationMetrics.authenticateFailure(simpleName, "token", code.toString());
+        AuthenticationMetrics.authenticateFailure(SIMPLE_NAME, "token", code.toString());
     }
 
     /**
@@ -394,7 +394,7 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
         }
         for (String issuer : allowedIssuers) {
             if (!issuer.toLowerCase().startsWith("https://")) {
-                log.warn("Allowed issuer is not using https scheme: " + issuer);
+                log.warn("Allowed issuer is not using https scheme: {}", issuer);
                 if (requireHttps) {
                     throw new IllegalArgumentException("Issuer URL does not use https, but must: " + issuer);
                 }
