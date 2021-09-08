@@ -16,6 +16,7 @@ import com.auth0.jwk.*;
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.exceptions.*;
+import com.auth0.jwt.interfaces.Claim;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.auth0.jwt.interfaces.JWTVerifier;
 import com.datastax.oss.pulsar.auth.model.OpenIDProviderMetadata;
@@ -95,10 +96,12 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
     private int jwkConnectionTimeout;
     private int jwkReadTimeout;
     private boolean requireHttps;
+    private String roleClaim;
 
     static final String ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN = "openIDAttemptAuthenticationProviderToken";
     static final String ALLOWED_TOKEN_ISSUERS = "openIDAllowedTokenIssuers";
     static final String ALLOWED_AUDIENCE = "openIDAllowedAudience";
+    static final String ROLE_CLAIM = "openIDRoleClaim";
     static final String ACCEPTED_TIME_LEEWAY_SECONDS = "openIDAcceptedTimeLeewaySeconds";
     static final String JWK_CACHE_SIZE = "openIDJwkCacheSize";
     static final String JWK_EXPIRES_SECONDS = "openIDJwkExpiresSeconds";
@@ -115,6 +118,7 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
     @Override
     public void initialize(ServiceConfiguration config) throws IOException {
         this.audience = getConfigValueAsString(config, ALLOWED_AUDIENCE);
+        this.roleClaim = getConfigValueAsString(config, ROLE_CLAIM, "sub");
         this.acceptedTimeLeeway = getConfigValueAsInt(config, ACCEPTED_TIME_LEEWAY_SECONDS, 0);
         this.jwkCacheSize = getConfigValueAsInt(config, JWK_CACHE_SIZE, 10);
         this.jwkExpiresSeconds = getConfigValueAsInt(config, JWK_EXPIRES_SECONDS, 5);
@@ -199,11 +203,38 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
     }
 
     /**
-     * For now, the role is the subject (or the "sub" field) from the JWT
+     * Get the role from a JWT at the configured role claim field.
+     * NOTE: does not do any verification of the JWT
      * @param jwt - token to get the role from
+     * @return the role, or null, if it is not set on the JWT
      */
     public String getRole(DecodedJWT jwt) {
-        return jwt.getSubject();
+        try {
+            Claim roleClaim = jwt.getClaim(this.roleClaim);
+            if (roleClaim.isNull()) {
+                // The claim was not present in the JWT
+                return null;
+            }
+
+            String role = roleClaim.asString();
+            if (role != null) {
+                // The role is non null only if the JSON node is a text field
+                return role;
+            }
+
+            List<String> roles = jwt.getClaim(this.roleClaim).asList(String.class);
+            if (roles == null || roles.size() == 0) {
+                return null;
+            } else if (roles.size() == 1) {
+                return roles.get(0);
+            } else {
+                log.debug("JWT for subject [{}] has multiple roles; using the first one.", jwt.getSubject());
+                return roles.get(0);
+            }
+        } catch (JWTDecodeException e) {
+            log.error("Exception while retrieving role from JWT", e);
+            return null;
+        }
     }
 
     /**

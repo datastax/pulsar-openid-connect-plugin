@@ -25,7 +25,11 @@ import javax.naming.AuthenticationException;
 import java.security.KeyPair;
 import java.sql.Date;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 
@@ -179,5 +183,106 @@ public class AuthenticationProviderOpenIDTest {
         ServiceConfiguration config = new ServiceConfiguration();
         config.setProperties(props);
         Assertions.assertThrows(IllegalArgumentException.class, () -> provider.initialize(config));
+    }
+
+    @Test void ensureMissingRoleClaimReturnsNull() throws Exception {
+        AuthenticationProviderOpenID provider = new AuthenticationProviderOpenID();
+        Properties props = new Properties();
+        props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, "https://myissuer.com");
+        props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, "false");
+        props.setProperty(AuthenticationProviderOpenID.ROLE_CLAIM, "sub");
+        ServiceConfiguration config = new ServiceConfiguration();
+        config.setProperties(props);
+        provider.initialize(config);
+
+        // Build an empty JWT
+        DefaultJwtBuilder defaultJwtBuilder = new DefaultJwtBuilder();
+        defaultJwtBuilder.setAudience("audience");
+        DecodedJWT jwtWithoutSub = JWT.decode(defaultJwtBuilder.compact());
+
+        // An empty JWT must result in a null role
+        Assertions.assertNull(provider.getRole(jwtWithoutSub));
+    }
+
+    @Test void ensureRoleClaimForStringReturnsRole() throws Exception {
+        AuthenticationProviderOpenID provider = new AuthenticationProviderOpenID();
+        Properties props = new Properties();
+        props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, "https://myissuer.com");
+        props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, "false");
+        props.setProperty(AuthenticationProviderOpenID.ROLE_CLAIM, "sub");
+        ServiceConfiguration config = new ServiceConfiguration();
+        config.setProperties(props);
+        provider.initialize(config);
+
+        // Build an empty JWT
+        DefaultJwtBuilder defaultJwtBuilder = new DefaultJwtBuilder();
+        defaultJwtBuilder.setSubject("my-role");
+        DecodedJWT jwt = JWT.decode(defaultJwtBuilder.compact());
+
+        // An empty JWT must result in a null role
+        Assertions.assertEquals("my-role", provider.getRole(jwt));
+    }
+
+    @Test void ensureRoleClaimForSingletonListReturnsRole() throws Exception {
+        AuthenticationProviderOpenID provider = new AuthenticationProviderOpenID();
+        Properties props = new Properties();
+        props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, "https://myissuer.com");
+        props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, "false");
+        props.setProperty(AuthenticationProviderOpenID.ROLE_CLAIM, "roles");
+        ServiceConfiguration config = new ServiceConfiguration();
+        config.setProperties(props);
+        provider.initialize(config);
+
+        // Build an empty JWT
+        DefaultJwtBuilder defaultJwtBuilder = new DefaultJwtBuilder();
+        HashMap<String, List<String>> claims = new HashMap();
+        claims.put("roles", Collections.singletonList("my-role"));
+        defaultJwtBuilder.setClaims(claims);
+        DecodedJWT jwt = JWT.decode(defaultJwtBuilder.compact());
+
+        // An empty JWT must result in a null role
+        Assertions.assertEquals("my-role", provider.getRole(jwt));
+    }
+
+    @Test void ensureRoleClaimForMultiEntryListReturnsFirstRole() throws Exception {
+        AuthenticationProviderOpenID provider = new AuthenticationProviderOpenID();
+        Properties props = new Properties();
+        props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, "https://myissuer.com");
+        props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, "false");
+        props.setProperty(AuthenticationProviderOpenID.ROLE_CLAIM, "roles");
+        ServiceConfiguration config = new ServiceConfiguration();
+        config.setProperties(props);
+        provider.initialize(config);
+
+        // Build an empty JWT
+        DefaultJwtBuilder defaultJwtBuilder = new DefaultJwtBuilder();
+        HashMap<String, List<String>> claims = new HashMap();
+        claims.put("roles", Arrays.asList("my-role-1", "my-role-2"));
+        defaultJwtBuilder.setClaims(claims);
+        DecodedJWT jwt = JWT.decode(defaultJwtBuilder.compact());
+
+        // An empty JWT must result in a null role
+        Assertions.assertEquals("my-role-1", provider.getRole(jwt));
+    }
+
+    @Test void ensureRoleClaimForEmptyListReturnsNull() throws Exception {
+        AuthenticationProviderOpenID provider = new AuthenticationProviderOpenID();
+        Properties props = new Properties();
+        props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, "https://myissuer.com");
+        props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, "false");
+        props.setProperty(AuthenticationProviderOpenID.ROLE_CLAIM, "roles");
+        ServiceConfiguration config = new ServiceConfiguration();
+        config.setProperties(props);
+        provider.initialize(config);
+
+        // Build an empty JWT
+        DefaultJwtBuilder defaultJwtBuilder = new DefaultJwtBuilder();
+        HashMap<String, List<String>> claims = new HashMap();
+        claims.put("roles", Collections.emptyList());
+        defaultJwtBuilder.setClaims(claims);
+        DecodedJWT jwt = JWT.decode(defaultJwtBuilder.compact());
+
+        // An empty JWT must result in a null role
+        Assertions.assertNull(provider.getRole(jwt));
     }
 }
