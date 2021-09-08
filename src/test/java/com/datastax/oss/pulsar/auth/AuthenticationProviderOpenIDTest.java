@@ -200,7 +200,7 @@ public class AuthenticationProviderOpenIDTest {
         defaultJwtBuilder.setAudience("audience");
         DecodedJWT jwtWithoutSub = JWT.decode(defaultJwtBuilder.compact());
 
-        // An empty JWT must result in a null role
+        // A JWT with an empty role claim must result in a null role
         Assertions.assertNull(provider.getRole(jwtWithoutSub));
     }
 
@@ -219,7 +219,6 @@ public class AuthenticationProviderOpenIDTest {
         defaultJwtBuilder.setSubject("my-role");
         DecodedJWT jwt = JWT.decode(defaultJwtBuilder.compact());
 
-        // An empty JWT must result in a null role
         Assertions.assertEquals("my-role", provider.getRole(jwt));
     }
 
@@ -240,7 +239,6 @@ public class AuthenticationProviderOpenIDTest {
         defaultJwtBuilder.setClaims(claims);
         DecodedJWT jwt = JWT.decode(defaultJwtBuilder.compact());
 
-        // An empty JWT must result in a null role
         Assertions.assertEquals("my-role", provider.getRole(jwt));
     }
 
@@ -261,7 +259,6 @@ public class AuthenticationProviderOpenIDTest {
         defaultJwtBuilder.setClaims(claims);
         DecodedJWT jwt = JWT.decode(defaultJwtBuilder.compact());
 
-        // An empty JWT must result in a null role
         Assertions.assertEquals("my-role-1", provider.getRole(jwt));
     }
 
@@ -282,7 +279,7 @@ public class AuthenticationProviderOpenIDTest {
         defaultJwtBuilder.setClaims(claims);
         DecodedJWT jwt = JWT.decode(defaultJwtBuilder.compact());
 
-        // An empty JWT must result in a null role
+        // A JWT with an empty list role claim must result in a null role
         Assertions.assertNull(provider.getRole(jwt));
     }
 }
