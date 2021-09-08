@@ -139,7 +139,7 @@ public class AuthenticationProviderOpenIDTest {
         AuthenticationProviderOpenID provider = new AuthenticationProviderOpenID();
         Properties props = new Properties();
         props.setProperty(AuthenticationProviderOpenID.ACCEPTED_TIME_LEEWAY_SECONDS, "10");
-        props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, "http://localhost:8080/");
+        props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, "https://localhost:8080");
         props.setProperty(AuthenticationProviderOpenID.ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, "false");
         ServiceConfiguration config = new ServiceConfiguration();
         config.setProperties(props);
@@ -159,5 +159,25 @@ public class AuthenticationProviderOpenIDTest {
             Assertions.fail(e);
         }
         Assertions.assertEquals(expectedValue, actualValue);
+    }
+
+    @Test
+    public void ensureEmptyIssuersFailsInitialization() {
+        AuthenticationProviderOpenID provider = new AuthenticationProviderOpenID();
+        Properties props = new Properties();
+        props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, "");
+        ServiceConfiguration config = new ServiceConfiguration();
+        config.setProperties(props);
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.initialize(config));
+    }
+
+    @Test
+    public void ensureInsecureIssuerFailsInitialization() {
+        AuthenticationProviderOpenID provider = new AuthenticationProviderOpenID();
+        Properties props = new Properties();
+        props.setProperty(AuthenticationProviderOpenID.ALLOWED_TOKEN_ISSUERS, "https://myissuer.com,http://myissuer.com");
+        ServiceConfiguration config = new ServiceConfiguration();
+        config.setProperties(props);
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.initialize(config));
     }
 }

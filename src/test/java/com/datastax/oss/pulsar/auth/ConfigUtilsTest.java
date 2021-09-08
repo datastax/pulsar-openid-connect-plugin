@@ -63,31 +63,31 @@ public class ConfigUtilsTest {
     }
 
     @Test
-    public void testGetConfigValueAsLongWorks() {
+    public void testGetConfigValueAsIntegerWorks() {
         Properties props = new Properties();
         props.setProperty("prop1", "1234");
         ServiceConfiguration config = new ServiceConfiguration();
         config.setProperties(props);
-        long actual = ConfigUtils.getConfigValueAsLong(config, "prop1", 9);
+        int actual = ConfigUtils.getConfigValueAsInt(config, "prop1", 9);
         Assertions.assertEquals(1234, actual);
     }
 
     @Test
-    public void testGetConfigValueAsLongReturnsDefaultIfNAN() {
+    public void testGetConfigValueAsIntegerReturnsDefaultIfNAN() {
         Properties props = new Properties();
         props.setProperty("prop1", "non-a-number");
         ServiceConfiguration config = new ServiceConfiguration();
         config.setProperties(props);
-        long actual = ConfigUtils.getConfigValueAsLong(config, "prop1", 9);
+        int actual = ConfigUtils.getConfigValueAsInt(config, "prop1", 9);
         Assertions.assertEquals(9, actual);
     }
 
     @Test
-    public void testGetConfigValueAsLongReturnsDefaultIfMissingProp() {
+    public void testGetConfigValueAsIntegerReturnsDefaultIfMissingProp() {
         Properties props = new Properties();
         ServiceConfiguration config = new ServiceConfiguration();
         config.setProperties(props);
-        long actual = ConfigUtils.getConfigValueAsLong(config, "prop1", 10);
+        int actual = ConfigUtils.getConfigValueAsInt(config, "prop1", 10);
         Assertions.assertEquals(10, actual);
     }
 

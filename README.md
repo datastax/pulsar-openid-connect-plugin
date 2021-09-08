@@ -23,7 +23,14 @@ The following configuration options are available for this plugin:
 | openIDAllowedAudience | `null` | String | If not set, defaults to `null`, and the `aud` claim is not checked. If set, the JWT must have the configured `aud` in its claims. If it is missing, the token will be rejected. |
 | openIDAcceptedTimeLeewaySeconds | `0` | Number (no decimals) | The number of seconds that a token will be accepted past its expiration time. |
 | openIDJwkCacheSize | `10` | Number (no decimals) | The number of JWK values to keep in the cache. |
-| openIDJwkExpiresMinutes | `5` | Number (no decimals) | The length of time to store a JWK before calling the issuer again. Note that this time is also the maximum time that a revoked token can be used. A longer window may improve performance, but it also increases the length of time than a deactivated token could be used. |
+| openIDJwkExpiresSeconds | `300` | Number (no decimals) | The length of time, in seconds, to store a JWK before calling the issuer again. Note that this time is also the maximum time that a revoked token can be used. A longer window may improve performance, but it also increases the length of time than a deactivated token could be used. |
+| openIDJwkConnectionTimeoutMillis | `10000` | Number (no decimals) | The length of time, in milliseconds, to wait while opening a connection to the JWKS url for an OpenID provider. |
+| openIDJwkReadTimeoutMillis | `10000` | Number (no decimals) | The length of time, in milliseconds, to wait for data to be available to read while connected to the OpenID provider. |
+| openIDMetadataCacheSize | `10` | Number (no decimals) | The number of OpenID metadata objects to store in the cache. |
+| openIDMetadataExpiresSeconds | `86400` | Number (no decimals) | The length of time, in seconds, to store the result of the `/.well-known/openid-configuration` result from an issuer. This result is used to retrieve the issuer's `jwks_uri`, which is then used to retrieve the current public keys for the issuer. |
+| openIDMetadataConnectionTimeoutMillis | `10000` | Number (no decimals) | The length of time, in milliseconds, to wait while opening a connection to the issuer's `/.well-known/openid-configuration` endpoint. |
+| openIDMetadataReadTimeoutMillis | `10000` | Number (no decimals) | The length of time, in milliseconds, to wait for data to be available to read while connected to the  issuer's `/.well-known/openid-configuration` endpoint. |
+| openIDRequireHttps | `true` | Boolean | Whether to fail initialization if the `openIDAllowedTokenIssuers` configuration contains schemes other than `https`. This is provided as a convenience for testing environments. It is strongly recommended, and the OpenID Spec technically requires, using a secure connection when connecting to issuers. |
 | openIDAttemptAuthenticationProviderToken | `true` | Boolean | Whether to use the `AuthenticationProviderToken` class when attempting verification of the JWT. See [Using AuthenticationProviderToken](#Using-AuthenticationProviderToken). |
 
 Note that the only required configuration is the `openIDAllowedTokenIssuers`.
@@ -36,15 +43,18 @@ The algorithm names follow the spec in [RFC-7518](https://datatracker.ietf.org/d
 
 ### Issuers
 The `openIDAllowedTokenIssuers` configuration is essential when configuring which token issuers can be trusted. It is
-recommended by [RFC-7515](https://datatracker.ietf.org/doc/html/rfc7515#section-4.1.2) that trusted URIs should include
-transport security to ensure the authenticity of the Public Keys retrieved from the issuers. This plugin does not
-enforce this requirement. If a configured issuer begins with `http`, the plugin will not modify the issuer's URI. If the
-configured issuer does not begin with `http`, the plugin will prepend `https://` to the issuer's domain. (Note that
-this design decision has not been finalized and is subject to change.)
+required by the OAuth2.0 spec [RFC-8414](https://datatracker.ietf.org/doc/html/rfc8414#section-2) that issuers use
+the "https" scheme. This ensures the authenticity of the data received from the Authorization Provider and prevents
+the leaking of tokens, which are secrets. By default, this plugin will fail to initialize if there are any allowed
+issuers without the "https" scheme. Since it can be helpful during testing to turn this off, it is possible to disable
+this verification. Note that this plugin uses the issuer url to first retrieve provider metadata at the
+`/.well-known/openid-configuration` endpoint. At this endpoint, the plugin retrieves the `jwks_uri`, which points
+to the current public keys for the issuer. The plugin retrieves the public keys located at the `jwks_uri` and caches
+them for a configurable amount of time.
 
-Note, also, that the issuers claim is checked by a direct string equality check, per [RFC-7519](https://datatracker.ietf.org/doc/html/rfc7519#section-7.3). As such, it is necessary
-to make sure that the `iss` claim on your JWT is contained in this collection. If the plugin prepends `https://`, that
-will not be included in the equality check. (This behavior may change.)
+Note, also, that the plugin verifies the issuer claim by a direct string equality check, per
+[RFC-7519](https://datatracker.ietf.org/doc/html/rfc7519#section-7.3). As such, it is necessary
+to make sure that the `iss` claim on your JWT is contained in the `openIDAllowedTokenIssuers` collection.
 
 It is also essential to ensure that the `iss` is reachable by the pulsar broker. If the broker cannot reach the allowed
 `iss`, it won't be able to retrieve the Public Key, which is a necessary step in asymmetric key validation. This detail
