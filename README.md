@@ -42,7 +42,7 @@ The algorithm names follow the spec in [RFC-7518](https://datatracker.ietf.org/d
 
 ### Role Claim
 The JWT claim used to retrieve the role is `sub`, by default. If required, you can change the claim by configuring the
-`openIDRoleClaim`. Note that this library can handle roles that are a String (JSON text) or Arrays of strings. In the
+`openIDRoleClaim`. Note that this library can handle roles that are a String (JSON text) or Arrays of Strings. In the
 case that the JSON node is an Array, this library retrieves the first element of the array for the role. This could lead
 to undefined behavior if the array changes order, so it is recommended to use single element arrays.
 
