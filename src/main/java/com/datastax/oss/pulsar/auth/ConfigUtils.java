@@ -28,10 +28,26 @@ public class ConfigUtils {
      * Get configured property as a string. If not configured, return null.
      * @param conf - the configuration map
      * @param configProp - the property to get
-     * @return a string from the conf
+     * @return a string from the conf or null, if the configuration property was not set
      */
     public static String getConfigValueAsString(ServiceConfiguration conf, String configProp) throws IllegalArgumentException {
         String value = getConfigValueAsStringImpl(conf, configProp);
+        log.info("Configuration for [{}] is [{}]", configProp, value);
+        return value;
+    }
+
+    /**
+     * Get configured property as a string. If not configured, return null.
+     * @param conf - the configuration map
+     * @param configProp - the property to get
+     * @param defaultValue - the value to use if the configuration value is not set
+     * @return a string from the conf or the default value
+     */
+    public static String getConfigValueAsString(ServiceConfiguration conf, String configProp, String defaultValue) throws IllegalArgumentException {
+        String value = getConfigValueAsStringImpl(conf, configProp);
+        if (value == null) {
+            value = defaultValue;
+        }
         log.info("Configuration for [{}] is [{}]", configProp, value);
         return value;
     }

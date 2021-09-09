@@ -21,6 +21,7 @@ The following configuration options are available for this plugin:
 | ---- | ------------- | ------ | ----------- |
 | openIDAllowedTokenIssuers | Empty Set | Comma delimited set of URIs | The allowed issuers to trust from the JWT. The `iss` claim must be contained in this set. See [Issuers](#Issuers). |
 | openIDAllowedAudience | `null` | String | If not set, defaults to `null`, and the `aud` claim is not checked. If set, the JWT must have the configured `aud` in its claims. If it is missing, the token will be rejected. |
+| openIDRoleClaim | `sub` | String | The JWT claim used to get the authenticated token's role. Defaults to the `sub` claim, but can be any claim. |
 | openIDAcceptedTimeLeewaySeconds | `0` | Number (no decimals) | The number of seconds that a token will be accepted past its expiration time. |
 | openIDJwkCacheSize | `10` | Number (no decimals) | The number of JWK values to keep in the cache. |
 | openIDJwkExpiresSeconds | `300` | Number (no decimals) | The length of time, in seconds, to store a JWK before calling the issuer again. Note that this time is also the maximum time that a revoked token can be used. A longer window may improve performance, but it also increases the length of time than a deactivated token could be used. |
@@ -38,6 +39,12 @@ Note that the only required configuration is the `openIDAllowedTokenIssuers`.
 ### Supported Algorithms
 Here is a list of supported algorithms for the OpenID Connect auth plugin: RS256, RS384, RS512, ES256, ES384, ES512.
 The algorithm names follow the spec in [RFC-7518](https://datatracker.ietf.org/doc/html/rfc7518#section-3.1).
+
+### Role Claim
+The JWT claim used to retrieve the role is `sub`, by default. If required, you can change the claim by configuring the
+`openIDRoleClaim`. Note that this library can handle roles that are a String (JSON text) or Arrays of Strings. In the
+case that the JSON node is an Array, this library retrieves the first element of the array for the role. This could lead
+to undefined behavior if the array changes order, so it is recommended to use single element arrays.
 
 ### Keycloak
 

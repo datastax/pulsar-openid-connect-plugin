@@ -43,6 +43,25 @@ public class ConfigUtilsTest {
     }
 
     @Test
+    public void testGetConfigValueAsStringWithDefaultWorks() {
+        Properties props = new Properties();
+        props.setProperty("prop1", "audience");
+        ServiceConfiguration config = new ServiceConfiguration();
+        config.setProperties(props);
+        String actual = ConfigUtils.getConfigValueAsString(config, "prop1", "default");
+        Assertions.assertEquals("audience", actual);
+    }
+
+    @Test
+    public void testGetConfigValueAsStringReturnsDefaultIfMissing() {
+        Properties props = new Properties();
+        ServiceConfiguration config = new ServiceConfiguration();
+        config.setProperties(props);
+        String actual = ConfigUtils.getConfigValueAsString(config, "prop1", "default");
+        Assertions.assertEquals("default", actual);
+    }
+
+    @Test
     public void testGetConfigValueAsSetReturnsWorks() {
         Properties props = new Properties();
         props.setProperty("prop1", "a, b,   c");
