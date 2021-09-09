@@ -14,11 +14,9 @@ package com.datastax.oss.pulsar.auth;
 
 import com.auth0.jwk.*;
 import com.auth0.jwt.JWT;
-import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.exceptions.*;
 import com.auth0.jwt.interfaces.Claim;
 import com.auth0.jwt.interfaces.DecodedJWT;
-import com.auth0.jwt.interfaces.JWTVerifier;
 import com.datastax.oss.pulsar.auth.model.OpenIDProviderMetadata;
 import org.apache.pulsar.broker.ServiceConfiguration;
 import org.apache.pulsar.broker.authentication.*;
@@ -31,9 +29,6 @@ import javax.naming.AuthenticationException;
 import javax.net.ssl.SSLSession;
 import java.io.IOException;
 import java.net.*;
-import java.security.PublicKey;
-import java.security.interfaces.ECPublicKey;
-import java.security.interfaces.RSAPublicKey;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -80,16 +75,6 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
 
     private AuthenticationProviderToken authenticationProviderToken;
 
-    // A list of supported algorithms. This is the "alg" field on the JWT.
-    // Source for strings: https://datatracker.ietf.org/doc/html/rfc7518#section-3.1.
-    private static final String ALG_RS256 = "RS256";
-    private static final String ALG_RS384 = "RS384";
-    private static final String ALG_RS512 = "RS512";
-    private static final String ALG_ES256 = "ES256";
-    private static final String ALG_ES384 = "ES384";
-    private static final String ALG_ES512 = "ES512";
-
-    private long acceptedTimeLeeway; // seconds
     private boolean isAttemptAuthenticationProviderToken;
     private int jwkCacheSize;
     private int jwkExpiresSeconds;
@@ -97,6 +82,8 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
     private int jwkReadTimeout;
     private boolean requireHttps;
     private String roleClaim;
+
+    private JWTVerifier jwtVerifier;
 
     static final String ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN = "openIDAttemptAuthenticationProviderToken";
     static final String ALLOWED_TOKEN_ISSUERS = "openIDAllowedTokenIssuers";
@@ -113,13 +100,9 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
     static final String METADATA_READ_TIMEOUT_MILLIS = "openIDMetadataReadTimeoutMillis";
     static final String REQUIRE_HTTPS = "openIDRequireHttps";
 
-    private String audience;
-
     @Override
     public void initialize(ServiceConfiguration config) throws IOException {
-        this.audience = getConfigValueAsString(config, ALLOWED_AUDIENCE);
         this.roleClaim = getConfigValueAsString(config, ROLE_CLAIM, "sub");
-        this.acceptedTimeLeeway = getConfigValueAsInt(config, ACCEPTED_TIME_LEEWAY_SECONDS, 0);
         this.jwkCacheSize = getConfigValueAsInt(config, JWK_CACHE_SIZE, 10);
         this.jwkExpiresSeconds = getConfigValueAsInt(config, JWK_EXPIRES_SECONDS, 5);
         this.jwkConnectionTimeout = getConfigValueAsInt(config, JWK_CONNECTION_TIMEOUT_MILLIS, 10_000);
@@ -135,6 +118,10 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
         int metadataReadTimeout = getConfigValueAsInt(config, METADATA_READ_TIMEOUT_MILLIS, 10_000);
         this.openIDProviderMetadataCache = new OpenIDProviderMetadataCache(metadataCacheSize, metadataExpiresHours,
                 metadataConnectionTimeout, metadataReadTimeout);
+
+        long acceptedTimeLeeway = getConfigValueAsInt(config, ACCEPTED_TIME_LEEWAY_SECONDS, 0);
+        String audience = getConfigValueAsString(config, ALLOWED_AUDIENCE);
+        this.jwtVerifier = new JWTVerifier(acceptedTimeLeeway, audience);
 
         this.isAttemptAuthenticationProviderToken =
                 getConfigValueAsBoolean(config, ATTEMPT_AUTHENTICATION_PROVIDER_TOKEN, true);
@@ -267,7 +254,7 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
      * @return a fully authenticated JWT
      * @throws AuthenticationException if the JWT is proven to be invalid in any way
      */
-    public DecodedJWT authenticateToken(DecodedJWT jwt) throws AuthenticationException {
+    private DecodedJWT authenticateToken(DecodedJWT jwt) throws AuthenticationException {
         if (jwt == null) {
             incrementFailureMetric(AuthenticationExceptionCode.ERROR_DECODING_JWT);
             throw new AuthenticationException("JWT cannot be null");
@@ -275,7 +262,9 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
         try {
             Jwk jwk = verifyIssuerAndGetJwk(jwt);
             // Throws exception if any verification check fails
-            return verifyJWT(jwk.getPublicKey(), jwt.getAlgorithm(), jwt);
+            jwtVerifier.verifyJWT(jwk.getPublicKey(), jwt);
+            // Returning a verified JWT
+            return jwt;
         } catch (InvalidPublicKeyException e) {
             incrementFailureMetric(AuthenticationExceptionCode.INVALID_PUBLIC_KEY);
             throw new AuthenticationException("Invalid public key: " + e.getMessage());
@@ -321,82 +310,6 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
     @Override
     public void close() throws IOException {
         // noop
-    }
-
-    /**
-     * Build and return a validator for the parameters.
-     *
-     * @param publicKey - the public key to use when configuring the validator
-     * @param publicKeyAlg - the algorithm for the parameterized public key
-     * @param jwt - jwt to be verified and returned (only if verified)
-     * @return a validator to use for validating a JWT associated with the parameterized public key.
-     * @throws AuthenticationException if the Public Key's algorithm is not supported or if the algorithm param does not
-     * match the Public Key's actual algorithm.
-     */
-    public DecodedJWT verifyJWT(PublicKey publicKey, String publicKeyAlg, DecodedJWT jwt) throws AuthenticationException {
-        if (publicKeyAlg == null) {
-            incrementFailureMetric(AuthenticationExceptionCode.UNSUPPORTED_ALGORITHM);
-            throw new AuthenticationException("PublicKey algorithm cannot be null");
-        }
-
-        Algorithm alg;
-        try {
-            switch (publicKeyAlg) {
-                case ALG_RS256:
-                    alg = Algorithm.RSA256((RSAPublicKey) publicKey, null);
-                    break;
-                case ALG_RS384:
-                    alg = Algorithm.RSA384((RSAPublicKey) publicKey, null);
-                    break;
-                case ALG_RS512:
-                    alg = Algorithm.RSA512((RSAPublicKey) publicKey, null);
-                    break;
-                case ALG_ES256:
-                    alg = Algorithm.ECDSA256((ECPublicKey) publicKey, null);
-                    break;
-                case ALG_ES384:
-                    alg = Algorithm.ECDSA384((ECPublicKey) publicKey, null);
-                    break;
-                case ALG_ES512:
-                    alg = Algorithm.ECDSA512((ECPublicKey) publicKey, null);
-                    break;
-                default:
-                    incrementFailureMetric(AuthenticationExceptionCode.UNSUPPORTED_ALGORITHM);
-                    throw new AuthenticationException("Unsupported algorithm: " + publicKeyAlg);
-            }
-        } catch (ClassCastException e) {
-            incrementFailureMetric(AuthenticationExceptionCode.ALGORITHM_MISMATCH);
-            throw new AuthenticationException("Expected PublicKey alg [" + publicKeyAlg + "] does match actual alg.");
-        }
-
-        // We verify issuer when retrieving the PublicKey, so it is not verified here
-        // If the configured audience is null, there is no check for the "aud" claim.
-        JWTVerifier verifier = JWT.require(alg)
-                .acceptLeeway(acceptedTimeLeeway)
-                .withAudience(audience)
-                .build();
-
-        try {
-            return verifier.verify(jwt);
-        } catch (TokenExpiredException e) {
-            incrementFailureMetric(AuthenticationExceptionCode.EXPIRED_JWT);
-            throw new AuthenticationException("JWT expired: " + e.getMessage());
-        } catch (SignatureVerificationException e) {
-            incrementFailureMetric(AuthenticationExceptionCode.ERROR_VERIFYING_JWT_SIGNATURE);
-            throw new AuthenticationException("JWT signature verification exception: " + e.getMessage());
-        } catch (InvalidClaimException e) {
-            incrementFailureMetric(AuthenticationExceptionCode.INVALID_JWT_CLAIM);
-            throw new AuthenticationException("JWT contains invalid claim: " + e.getMessage());
-        } catch (AlgorithmMismatchException e) {
-            incrementFailureMetric(AuthenticationExceptionCode.ALGORITHM_MISMATCH);
-            throw new AuthenticationException("JWT algorithm does not match Public Key algorithm: " + e.getMessage());
-        } catch (JWTDecodeException e) {
-            incrementFailureMetric(AuthenticationExceptionCode.ERROR_DECODING_JWT);
-            throw new AuthenticationException("Error while decoding JWT: " + e.getMessage());
-        } catch (JWTVerificationException e) {
-            incrementFailureMetric(AuthenticationExceptionCode.ERROR_VERIFYING_JWT);
-            throw new AuthenticationException("JWT verification failed: " + e.getMessage());
-        }
     }
 
     private JwkProvider getJwkProviderForIssuer(URL issuer) {
