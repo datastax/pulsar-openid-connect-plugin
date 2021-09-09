@@ -244,7 +244,7 @@ public class AuthenticationProviderOpenID implements AuthenticationProvider {
         try {
             Jwk jwk = verifyIssuerAndGetJwk(jwt);
             // Throws exception if any verification check fails
-            return verifyJWT(jwk.getPublicKey(), jwk.getAlgorithm(), jwt);
+            return verifyJWT(jwk.getPublicKey(), jwt.getAlgorithm(), jwt);
         } catch (InvalidPublicKeyException e) {
             incrementFailureMetric(AuthenticationExceptionCode.INVALID_PUBLIC_KEY);
             throw new AuthenticationException("Invalid public key: " + e.getMessage());
