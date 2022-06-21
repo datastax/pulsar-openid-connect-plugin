@@ -10,6 +10,10 @@ This broker side plugin supports the retrieval of Public Keys from an identity p
 dynamic validation of JWTs for multiple, configured allowed-listed issuers. It also provides for the ability to first
 attempt to use the local `AuthenticationProviderToken` verifier before retrieving a remote JWK for token validation.
 
+### Requirements
+This plugin requires Java 11 runtime and will work with all current versions of Pulsar (2.7, 2.8, 2.9, 2.10). It is
+packaged by default in the Luna Streaming Distributions found here: https://github.com/datastax/pulsar/releases.
+
 ### Client Integration
 To integrate your client with a broker using this authentication plugin, use Pulsar's built in
 [OAuth2.0](https://pulsar.apache.org/docs/security-oauth2/) client integration.
