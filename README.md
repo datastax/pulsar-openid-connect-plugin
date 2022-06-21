@@ -11,28 +11,28 @@ dynamic validation of JWTs for multiple, configured allowed-listed issuers. It a
 attempt to use the local `AuthenticationProviderToken` verifier before retrieving a remote JWK for token validation.
 
 ### Client Integration
-To integrate your client with a broker using this authentication plugin, use Pulsar's built in `AuthenticationToken`
-class. Your client application will need to handle retrieving the token as well as refreshing it upon expiration.
+To integrate your client with a broker using this authentication plugin, use Pulsar's built in
+[OAuth2.0](https://pulsar.apache.org/docs/security-oauth2/) client integration.
 
 ### Configuration
 The following configuration options are available for this plugin:
 
-| Name | Default Value | Format | Description |
-| ---- | ------------- | ------ | ----------- |
-| openIDAllowedTokenIssuers | Empty Set | Comma delimited set of URIs | The allowed issuers to trust from the JWT. The `iss` claim must be contained in this set. See [Issuers](#Issuers). |
-| openIDAllowedAudience | `null` | String | If not set, defaults to `null`, and the `aud` claim is not checked. If set, the JWT must have the configured `aud` in its claims. If it is missing, the token will be rejected. |
-| openIDRoleClaim | `sub` | String | The JWT claim used to get the authenticated token's role. Defaults to the `sub` claim, but can be any claim. |
-| openIDAcceptedTimeLeewaySeconds | `0` | Number (no decimals) | The number of seconds that a token will be accepted past its expiration time. |
-| openIDJwkCacheSize | `10` | Number (no decimals) | The number of JWK values to keep in the cache. |
-| openIDJwkExpiresSeconds | `300` | Number (no decimals) | The length of time, in seconds, to store a JWK before calling the issuer again. Note that this time is also the maximum time that a revoked token can be used. A longer window may improve performance, but it also increases the length of time than a deactivated token could be used. |
-| openIDJwkConnectionTimeoutMillis | `10000` | Number (no decimals) | The length of time, in milliseconds, to wait while opening a connection to the JWKS url for an OpenID provider. |
-| openIDJwkReadTimeoutMillis | `10000` | Number (no decimals) | The length of time, in milliseconds, to wait for data to be available to read while connected to the OpenID provider. |
-| openIDMetadataCacheSize | `10` | Number (no decimals) | The number of OpenID metadata objects to store in the cache. |
-| openIDMetadataExpiresSeconds | `86400` | Number (no decimals) | The length of time, in seconds, to store the result of the `/.well-known/openid-configuration` result from an issuer. This result is used to retrieve the issuer's `jwks_uri`, which is then used to retrieve the current public keys for the issuer. |
-| openIDMetadataConnectionTimeoutMillis | `10000` | Number (no decimals) | The length of time, in milliseconds, to wait while opening a connection to the issuer's `/.well-known/openid-configuration` endpoint. |
-| openIDMetadataReadTimeoutMillis | `10000` | Number (no decimals) | The length of time, in milliseconds, to wait for data to be available to read while connected to the  issuer's `/.well-known/openid-configuration` endpoint. |
-| openIDRequireHttps | `true` | Boolean | Whether to fail initialization if the `openIDAllowedTokenIssuers` configuration contains schemes other than `https`. This is provided as a convenience for testing environments. It is strongly recommended, and the OpenID Spec technically requires, using a secure connection when connecting to issuers. |
-| openIDAttemptAuthenticationProviderToken | `true` | Boolean | Whether to use the `AuthenticationProviderToken` class when attempting verification of the JWT. See [Using AuthenticationProviderToken](#Using-AuthenticationProviderToken). |
+| Name                                     | Default Value | Format                      | Description                                                                                                                                                                                                                                                                                                  |
+|------------------------------------------|---------------|-----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| openIDAllowedTokenIssuers                | Empty Set     | Comma delimited set of URIs | The allowed issuers to trust from the JWT. The `iss` claim must be contained in this set. See [Issuers](#Issuers).                                                                                                                                                                                           |
+| openIDAllowedAudience                    | `null`        | String                      | If not set, defaults to `null`, and the `aud` claim is not checked. If set, the JWT must have the configured `aud` in its claims. If it is missing, the token will be rejected.                                                                                                                              |
+| openIDRoleClaim                          | `sub`         | String                      | The JWT claim used to get the authenticated token's role. Defaults to the `sub` claim, but can be any claim.                                                                                                                                                                                                 |
+| openIDAcceptedTimeLeewaySeconds          | `0`           | Number (no decimals)        | The number of seconds that a token will be accepted past its expiration time.                                                                                                                                                                                                                                |
+| openIDJwkCacheSize                       | `10`          | Number (no decimals)        | The number of JWK values to keep in the cache.                                                                                                                                                                                                                                                               |
+| openIDJwkExpiresSeconds                  | `300`         | Number (no decimals)        | The length of time, in seconds, to store a JWK before calling the issuer again. Note that this time is also the maximum time that a revoked token can be used. A longer window may improve performance, but it also increases the length of time than a deactivated token could be used.                     |
+| openIDJwkConnectionTimeoutMillis         | `10000`       | Number (no decimals)        | The length of time, in milliseconds, to wait while opening a connection to the JWKS url for an OpenID provider.                                                                                                                                                                                              |
+| openIDJwkReadTimeoutMillis               | `10000`       | Number (no decimals)        | The length of time, in milliseconds, to wait for data to be available to read while connected to the OpenID provider.                                                                                                                                                                                        |
+| openIDMetadataCacheSize                  | `10`          | Number (no decimals)        | The number of OpenID metadata objects to store in the cache.                                                                                                                                                                                                                                                 |
+| openIDMetadataExpiresSeconds             | `86400`       | Number (no decimals)        | The length of time, in seconds, to store the result of the `/.well-known/openid-configuration` result from an issuer. This result is used to retrieve the issuer's `jwks_uri`, which is then used to retrieve the current public keys for the issuer.                                                        |
+| openIDMetadataConnectionTimeoutMillis    | `10000`       | Number (no decimals)        | The length of time, in milliseconds, to wait while opening a connection to the issuer's `/.well-known/openid-configuration` endpoint.                                                                                                                                                                        |
+| openIDMetadataReadTimeoutMillis          | `10000`       | Number (no decimals)        | The length of time, in milliseconds, to wait for data to be available to read while connected to the  issuer's `/.well-known/openid-configuration` endpoint.                                                                                                                                                 |
+| openIDRequireHttps                       | `true`        | Boolean                     | Whether to fail initialization if the `openIDAllowedTokenIssuers` configuration contains schemes other than `https`. This is provided as a convenience for testing environments. It is strongly recommended, and the OpenID Spec technically requires, using a secure connection when connecting to issuers. |
+| openIDAttemptAuthenticationProviderToken | `true`        | Boolean                     | Whether to use the `AuthenticationProviderToken` class when attempting verification of the JWT. See [Using AuthenticationProviderToken](#Using-AuthenticationProviderToken).                                                                                                                                 |
 
 Note that the only required configuration is the `openIDAllowedTokenIssuers`.
 
@@ -66,7 +66,7 @@ to make sure that the `iss` claim on your JWT is contained in the `openIDAllowed
 It is also essential to ensure that the `iss` is reachable by the pulsar broker. If the broker cannot reach the allowed
 `iss`, it won't be able to retrieve the Public Key, which is a necessary step in asymmetric key validation. This detail
 is especially relevant if you are deploying keycloak outside the kubernetes cluster hosting pulsar or even in a
-separate namespace within the same kuberentes cluster.
+separate namespace within the same kubernetes cluster.
 
 In the case where your Token Issuer is running in the same kubernetes cluster as pulsar, but the issuer is accessed from
 outside that kubernetes cluster, there is a chance that the networking may not be ideal. This is because the issuer will
@@ -97,7 +97,7 @@ following:
    containing the necessary dependencies to run on a pulsar broker.
 1. Configure the broker to use `com.datastax.oss.pulsar.auth.AuthenticationProviderOpenID` as the authentication
    provider class. Make sure to enable authentication on the broker.
-1. Configure pulsar clients to use the `AuthenticationToken` client `Authentication` class. This is the class
+1. Configure pulsar clients to use the `AuthenticationOAuth2` client `Authentication` class. This is the class
    distributed as part of pulsar.
 
 ### Warning About AuthenticationProviderToken
