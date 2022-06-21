@@ -46,7 +46,7 @@ import java.util.concurrent.TimeUnit;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class OpenIDKeycloakIntegrationTest {
 
-    String KEYCLOAK_VERSION = "14.0.0";
+    String KEYCLOAK_VERSION = "16.1.0";
 
     int KEYCLOAK_PORT = 8080;
     String KEYCLOAK_URL = "http://localhost:" + KEYCLOAK_PORT + "/auth";
