@@ -33,8 +33,8 @@
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <pulsar.version>2.8.0</pulsar.version>
-        <jsonwebtoken.version>0.11.2</jsonwebtoken.version>
+        <pulsar.version>2.10.0</pulsar.version>
+        <jsonwebtoken.version>0.11.5</jsonwebtoken.version>
         <jupiter.version>5.7.2</jupiter.version>
     </properties>
     <build>
@@ -124,12 +124,12 @@ limitations under the License.]]></inlineHeader>
         <dependency>
             <groupId>com.auth0</groupId>
             <artifactId>java-jwt</artifactId>
-            <version>3.18.1</version>
+            <version>3.19.2</version>
         </dependency>
         <dependency>
             <groupId>com.auth0</groupId>
             <artifactId>jwks-rsa</artifactId>
-            <version>0.19.0</version>
+            <version>0.21.1</version>
         </dependency>
 
         <dependency>
@@ -147,7 +147,7 @@ limitations under the License.]]></inlineHeader>
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>
             <artifactId>caffeine</artifactId>
-            <version>2.9.1</version>
+            <version>3.1.1</version>
         </dependency>
 
         <dependency>
