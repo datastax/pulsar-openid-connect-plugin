@@ -179,15 +179,15 @@ limitations under the License.]]></inlineHeader>
         <dependency>
             <groupId>com.github.tmtsoftware</groupId>
             <artifactId>embedded-keycloak</artifactId>
-            <version>v0.4.0</version>
+            <version>v0.6.0</version>
             <scope>test</scope>
         </dependency>
 
-        <!-- The version here is should match the version of the embedded keycloak -->
+        <!-- The version here must match the version of the embedded keycloak -->
         <dependency>
             <groupId>org.keycloak</groupId>
             <artifactId>keycloak-admin-client</artifactId>
-            <version>14.0.0</version>
+            <version>16.1.0</version>
             <scope>test</scope>
         </dependency>
 
