@@ -143,10 +143,6 @@ limitations under the License.]]></inlineHeader>
                     <groupId>io.grpc</groupId>
                     <artifactId>*</artifactId>
                 </exclusion>
-                <exclusion>
-                    <groupId>com.google.protobuf</groupId>
-                    <artifactId>protobuf-java-util</artifactId>
-                </exclusion>
             </exclusions>
         </dependency>
 
