@@ -36,6 +36,8 @@
         <pulsar.version>2.10.0</pulsar.version>
         <jsonwebtoken.version>0.11.5</jsonwebtoken.version>
         <jupiter.version>5.7.2</jupiter.version>
+        <aircompressor.version>0.27</aircompressor.version>
+        <protobuf.version>3.25.5</protobuf.version>
     </properties>
     <build>
             <plugins>
@@ -141,6 +143,10 @@ limitations under the License.]]></inlineHeader>
                     <groupId>io.grpc</groupId>
                     <artifactId>*</artifactId>
                 </exclusion>
+                <exclusion>
+                    <groupId>com.google.protobuf</groupId>
+                    <artifactId>protobuf-java-util</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
 
@@ -161,6 +167,16 @@ limitations under the License.]]></inlineHeader>
             <artifactId>junit-jupiter-engine</artifactId>
             <version>${jupiter.version}</version>
             <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>aircompressor</artifactId>
+            <version>${aircompressor.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <version>${protobuf.version}</version>
         </dependency>
 
         <dependency>
