@@ -36,6 +36,8 @@
         <pulsar.version>2.10.0</pulsar.version>
         <jsonwebtoken.version>0.11.5</jsonwebtoken.version>
         <jupiter.version>5.7.2</jupiter.version>
+        <aircompressor.version>0.27</aircompressor.version>
+        <protobuf.version>3.25.5</protobuf.version>
     </properties>
     <build>
             <plugins>
@@ -161,6 +163,20 @@ limitations under the License.]]></inlineHeader>
             <artifactId>junit-jupiter-engine</artifactId>
             <version>${jupiter.version}</version>
             <scope>test</scope>
+        </dependency>
+        <!-- Override transitive dependency version to fix vulnerability -->
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>aircompressor</artifactId>
+            <version>${aircompressor.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- Override transitive dependency version to fix vulnerability -->
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <version>${protobuf.version}</version>
+            <scope>runtime</scope>
         </dependency>
 
         <dependency>
